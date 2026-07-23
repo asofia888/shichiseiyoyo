@@ -7,6 +7,7 @@ import { generateAppraisal } from './_lib/appraisal-core.js';
 // 環境変数 GEMINI_API_KEY は Vercel の Settings → Environment Variables で設定する。
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
   const { ruleHits } = (req.body ?? {}) as { ruleHits?: unknown };

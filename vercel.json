@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/appraisal.ts": {
+      "maxDuration": 60
+    }
+  }
+}
