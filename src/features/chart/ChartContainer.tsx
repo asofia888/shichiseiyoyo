@@ -84,12 +84,18 @@ export function ChartContainer({ input, schoolConfig, onOpenSettings }: Props) {
   const handleGenerateAppraisal = async () => {
     setGeneratingAppraisal(true);
     try {
+      // APIには文章ではなくルールIDと限定パラメータのみを送る (サーバー側で正規テーブルから再構成)
       const response = await fetch('/api/appraisal', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ ruleHits })
+        body: JSON.stringify({
+          hits: ruleHits.map(h => ({
+            ruleId: h.ruleId,
+            ...(h.params ? { params: h.params } : {})
+          }))
+        })
       });
       if (response.ok) {
         let data;

@@ -1,64 +1,57 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 七政四余 命盤
 
-# Run and deploy your AI Studio app
+生年月日・出生時刻・出生地から**七政四余**（中国伝統占星術）の命盤を計算・描画し、AI による総合鑑定文を生成する Web アプリです。
 
-This contains everything you need to run your app locally.
+**デモ**: https://shichiseiyoyo.vercel.app
 
-View your app in AI Studio: https://ai.studio/apps/8cf2d27d-3750-448d-8627-41860ba6bdb7
+## 特徴
 
-## Run Locally
+- **検証済みの天文計算** — [astronomy-engine](https://github.com/cosinekitty/astronomy) による七政（日月五星）の実測位置に加えて:
+  - 二十八宿は**距星の実測座標**（SIMBAD の ICRS J2000）から生成したサイデリアル境界（角宿距星スピカ ≈ 180° で Lahiri 定義と整合）
+  - 羅睺・計都は**宋明式**（羅睺=降交点）／**印度・時憲式**（羅睺=昇交点）を流派設定で切替
+  - 月孛（月の遠地点）は平均／真位置（実遠地点イベント補間）、真交点は接触軌道要素から算出
+  - 伝統的安命法（卯時太陽）は**真太陽時**（均時差・経度差を天文計算で内包）に対応
+- **3層分離アーキテクチャ** — 天文計算（EphemerisProvider）／判定ルール（RuleEngine）／文章生成（Gemini API）を分離し、鑑定結果には根拠と出典を明示
+- **流派設定** — 黄道体系（トロピカル／サイデリアル）・安命法・四余の計算モデル・時辰基準などをプリセット＋個別カスタムで切替
+- 命盤 SVG チャート・データ表・鑑定履歴（ローカル保存）・印刷・PWA 対応
+- **テスト32件**（vitest）— 単体・ゴールデンテスト（基準命盤）・外部アンカー（2020年金環日食＝夏至）・API入力検証
 
-**Prerequisites:**  Node.js
+## セットアップ
 
+必要環境: Node.js 20+
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+npm run dev        # http://localhost:3000
+```
 
----
+AI総合鑑定（任意機能）を使う場合は、`.env.example` を参考に `.env` を作成し
+[Google AI Studio](https://aistudio.google.com/apikey) で発行した `GEMINI_API_KEY` を設定してください。
+命盤の計算・表示だけならキーは不要です。
 
-# Claude Code 導入キット（Opus 4.8 活用ガイド 対応）
+```bash
+npm test           # テスト実行
+npm run lint       # 型チェック (tsc --noEmit)
+npm run build      # 本番ビルド (dist/ + server-dist/)
+npm start          # 本番サーバー (Express)
+```
 
-活用ガイド（A4×2枚）の中身を、Claude Code の公式のしくみに
-分解して配置したものです。**ガイド本文（PDF/HTML）は人間用なので、
-Claude Code には読み込ませません。**
+## デプロイ (Vercel)
 
-## 配置
+GitHub 連携でそのままデプロイできます。
 
-このフォルダの中身を、プロジェクトの直下にそのままコピーします。
+- 環境変数 `GEMINI_API_KEY` を Settings → Environment Variables に設定
+- AI鑑定は `/api/appraisal`（サーバーレス関数）が処理します。APIキーはサーバー側でのみ使用され、クライアントには渡りません
+- エンドポイントは**ルールIDのみ受付**（任意文章は拒否）＋ Origin チェック＋簡易レート制限で保護しています
 
-    あなたのプロジェクト/
-    ├── CLAUDE.md            ← 常時ルール（毎セッション自動で読まれる。短く保つ）
-    ├── LESSONS.md           ← 教訓ノート（資産四）
-    └── .claude/
-        ├── agents/
-        │   └── betsujin-reviewer.md   ← 別人検証（独立コンテキストの厳しいレビュアー）
-        └── skills/
-            ├── app-dev-playbook/      ← 手順書（資産二）の実例。分野ごとに増やす
-            ├── nidan-review/          ← /nidan-review：二段レビュー
-            ├── kyokun-note/           ← /kyokun-note：教訓ノート更新
-            └── hikitsugi/             ← /hikitsugi：新セッション引き継ぎ
+## 技術構成
 
-どのプロジェクトでも使いたいものは、~/.claude/skills/ と
-~/.claude/agents/ に置くと個人用として全プロジェクトで有効になります。
+React 19 / TypeScript / Vite / Tailwind CSS 4 / astronomy-engine / Express (ローカル) / Vercel Serverless Functions (本番) / Gemini API / vitest
 
-## 使い方（一日の流れ）
+## 免責
 
-1. 依頼はテンプレート（基本編・裏面）で一括して渡す
-2. 計画はプランモード（Shift+Tab）で確認してから実行させる
-3. 完成したら betsujin-reviewer が検証（CLAUDE.md で指示済み）
-4. 手動で粗探ししたいときは /nidan-review
-5. セッションの締めに /kyokun-note で教訓を貯める
-6. 会話が長くなったら /hikitsugi で仕切り直す
+本アプリの鑑定結果は、伝統的占術の解釈をエンターテインメントとして提供するものであり、医療・法律・投資等の専門的助言に代わるものではありません。
 
-## 育て方
+## 開発ワークフロー
 
-- 手順書スキルは分野ごとに増やす（コラム執筆用、ラベル生成用など）。
-  作り方：良い出力が出た直後に「いまの進め方を、.claude/skills/◯◯/SKILL.md
-  の形式で手順書にして」と頼めば、Claude 自身に書かせられます。
-- description は「何ができるか」ではなく「いつ使うか」（発火条件）で書く。
-- CLAUDE.md が手順で膨らんできたら、その部分をスキルへ移す。
+本リポジトリの Claude Code 用設定（CLAUDE.md・スキル・レビューエージェント）については [docs/claude-code-kit.md](docs/claude-code-kit.md) を参照してください。

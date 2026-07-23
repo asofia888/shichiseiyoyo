@@ -12,10 +12,10 @@ async function startServer() {
 
   app.use(express.json());
 
-  // 鑑定文生成のロジックは api/_lib/appraisal-core.ts に共通化 (Vercel関数と同一実装)
+  // 鑑定文生成のロジックは api/_lib/appraisal-core.ts に共通化 (Vercel関数と同一実装)。
+  // リクエストはルールID方式 ({hits: [{ruleId, params?}]}) で、検証・再構成は core が行う。
   app.post('/api/appraisal', async (req, res) => {
-    const { ruleHits } = req.body ?? {};
-    const result = await generateAppraisal(ruleHits);
+    const result = await generateAppraisal(req.body);
     res.status(result.status).json(result.body);
   });
 

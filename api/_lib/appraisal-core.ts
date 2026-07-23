@@ -1,13 +1,47 @@
 import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
+import { buildCanonicalRuleHit, CanonicalRuleHit } from './rule-texts.js';
 
 export interface AppraisalResult {
   status: number;
   body: { text?: string; error?: string };
 }
 
+// リクエストはルールIDと限定パラメータのみ。文章は受け取らない。
+const requestSchema = z.object({
+  hits: z
+    .array(
+      z.object({
+        ruleId: z.string().min(1).max(40),
+        params: z.record(z.string().max(20), z.string().max(20)).optional(),
+      })
+    )
+    .min(1)
+    .max(20),
+});
+
+// リクエストボディを検証し、正規テーブルからRuleHitを再構成する。
+// 不正なら null (エクスポートしてテストからも検証する)。
+export function parseAppraisalRequest(rawBody: unknown): CanonicalRuleHit[] | null {
+  const parsed = requestSchema.safeParse(rawBody);
+  if (!parsed.success) return null;
+  const hits: CanonicalRuleHit[] = [];
+  for (const h of parsed.data.hits) {
+    const built = buildCanonicalRuleHit(h.ruleId, h.params ?? {});
+    if (!built) return null; // 未知のruleId・不正パラメータは全体を拒否
+    hits.push(built);
+  }
+  return hits;
+}
+
 // AI鑑定文生成の共通ロジック。
 // ローカル開発 (server.ts の Express ルート) と Vercel (api/appraisal.ts) の両方から使う。
-export async function generateAppraisal(ruleHits: unknown): Promise<AppraisalResult> {
+export async function generateAppraisal(rawBody: unknown): Promise<AppraisalResult> {
+  const ruleHits = parseAppraisalRequest(rawBody);
+  if (!ruleHits) {
+    return { status: 400, body: { error: '入力が不正です。アプリの画面から再度お試しください。' } };
+  }
+
   if (!process.env.GEMINI_API_KEY) {
     return { status: 500, body: { error: 'GEMINI_API_KEY is missing' } };
   }
