@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { generateAppraisal } from './_lib/appraisal-core';
+// 注意: "type":"module" のため実行時はNode ESM解決になる。拡張子(.js)を省略すると
+// Vercel上で ERR_MODULE_NOT_FOUND になる (コンパイル後の appraisal-core.js を指す)。
+import { generateAppraisal } from './_lib/appraisal-core.js';
 
 // Vercel Serverless Function: POST /api/appraisal
 // 環境変数 GEMINI_API_KEY は Vercel の Settings → Environment Variables で設定する。

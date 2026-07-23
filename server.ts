@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { generateAppraisal } from './api/_lib/appraisal-core';
+import { generateAppraisal } from './api/_lib/appraisal-core.js';
 
 dotenv.config();
 
