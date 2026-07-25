@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # 型チェック (tsconfig の strict 設定込み)
+      - run: npm run lint
+
+      # 単体・ゴールデン・外部アンカーテスト
+      - run: npm test
+
+      # 本番ビルドが通ることまで確認する
+      - run: npm run build
