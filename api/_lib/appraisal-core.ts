@@ -8,16 +8,19 @@ export interface AppraisalResult {
 }
 
 // リクエストはルールIDと限定パラメータのみ。文章は受け取らない。
+// 値の上限が80文字なのは、会合ルールが「木星・土星・金星」のように
+// 星曜名を「・」でつないで渡すため (中身は必ずホワイトリストで検証する)。
+// 件数の上限30は、七政7＋四余4＋命主・命度主・命宮・角宮＋会合2＋格局5＋運3＝24 を見込んだ値。
 const requestSchema = z.object({
   hits: z
     .array(
       z.object({
         ruleId: z.string().min(1).max(40),
-        params: z.record(z.string().max(20), z.string().max(20)).optional(),
+        params: z.record(z.string().max(20), z.string().max(80)).optional(),
       })
     )
     .min(1)
-    .max(20),
+    .max(30),
 });
 
 // リクエストボディを検証し、正規テーブルからRuleHitを再構成する。

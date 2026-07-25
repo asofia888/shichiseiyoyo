@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -13,7 +13,12 @@ const formSchema = z.object({
   longitude: z.number().min(-180).max(180),
   timezoneOffset: z.number().min(-12).max(14),
   isDaylightSaving: z.boolean().optional(),
+  gender: z.enum(['male', 'female']),
 });
+
+// フォームでは性別を必須にする (BirthInput 側は、性別欄を設ける前に保存された
+// 履歴レコードを読めるようにするため任意項目のままにしてある)。
+type FormValues = z.infer<typeof formSchema>;
 
 interface Props {
   onSubmit: (data: BirthInput) => void;
@@ -21,7 +26,7 @@ interface Props {
 }
 
 export function BirthInputForm({ onSubmit, defaultValues }: Props) {
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<BirthInput>({
+  const { register, handleSubmit, setValue, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: defaultValues || {
       name: '佐藤 拓也',
@@ -32,6 +37,7 @@ export function BirthInputForm({ onSubmit, defaultValues }: Props) {
       longitude: 139.7414,
       timezoneOffset: 9,
       isDaylightSaving: false,
+      gender: 'male',
     },
   });
 
@@ -71,7 +77,7 @@ export function BirthInputForm({ onSubmit, defaultValues }: Props) {
   };
 
   return (
-    <div className="bg-[#232326]/80 backdrop-blur-sm border border-[#D4AF37]/10 p-8 shadow-2xl">
+    <div className="bg-[#232326]/80 backdrop-blur-sm border border-[#D4AF37]/10 p-5 md:p-8 shadow-2xl">
       <h2 className="text-xl font-serif text-[#D4AF37] mb-6 border-b border-[#D4AF37]/20 pb-3">出生情報の入力</h2>
       
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -105,9 +111,9 @@ export function BirthInputForm({ onSubmit, defaultValues }: Props) {
             {errors.birthTime && <p className="text-red-400 text-xs">{errors.birthTime.message}</p>}
           </div>
 
-          <div className="space-y-2 md:col-span-2">
+          <div className="space-y-2">
             <label className="text-sm text-[#F5F2ED]/70 block">時刻の精度</label>
-            <select 
+            <select
               {...register('timeAccuracy')}
               className="w-full bg-[#1A1A1B] border border-[#D4AF37]/20 rounded px-3 py-2 text-[#F5F2ED] focus:outline-none focus:border-[#D4AF37]"
             >
@@ -115,6 +121,21 @@ export function BirthInputForm({ onSubmit, defaultValues }: Props) {
               <option value="approximate">おおよそ</option>
               <option value="unknown">不明</option>
             </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm text-[#F5F2ED]/70 block">性別</label>
+            <select
+              {...register('gender')}
+              className="w-full bg-[#1A1A1B] border border-[#D4AF37]/20 rounded px-3 py-2 text-[#F5F2ED] focus:outline-none focus:border-[#D4AF37]"
+            >
+              <option value="male">男性</option>
+              <option value="female">女性</option>
+            </select>
+            <p className="text-[11px] text-[#F5F2ED]/40">
+              大限・小限の順逆（陽男陰女＝順行）の判定にのみ使用します。
+            </p>
+            {errors.gender && <p className="text-red-400 text-xs">{errors.gender.message}</p>}
           </div>
 
           <div className="space-y-2 md:col-span-2 p-4 bg-[#1A1A1B] border border-[#D4AF37]/30 rounded">
@@ -125,8 +146,9 @@ export function BirthInputForm({ onSubmit, defaultValues }: Props) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchLocation())}
-                className="flex-1 bg-[#232326] border border-[#D4AF37]/20 rounded px-3 py-2 text-[#F5F2ED] focus:outline-none focus:border-[#D4AF37]"
-                placeholder="市・区などの名前を入力してEnter"
+                // min-w-0 がないと placeholder の幅がそのまま最小幅になり、狭い画面で横にはみ出す
+                className="flex-1 min-w-0 bg-[#232326] border border-[#D4AF37]/20 rounded px-3 py-2 text-[#F5F2ED] focus:outline-none focus:border-[#D4AF37]"
+                placeholder="市・区などの名前を入力"
               />
               <button 
                 type="button" 

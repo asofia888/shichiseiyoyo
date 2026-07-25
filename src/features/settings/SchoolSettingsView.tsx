@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Settings, Check, RotateCcw, Shield, Sparkles, Compass, Sun, Moon } from 'lucide-react';
-import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, NodeCalculation, ApogeeCalculation, ZiqiOption, MingGongMethod, RahuKetuAssignment, ShichenBasis } from '../../domain/qizhengsiyu/schoolConfig';
+import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, MingGongMethod, RahuKetuAssignment, ShichenBasis } from '../../domain/qizhengsiyu/schoolConfig';
 import { saveStoredSchoolConfig, resetStoredSchoolConfig } from '../../domain/storage/schoolConfigStore';
 
 interface Props {
@@ -54,9 +54,9 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
   ) || 'custom';
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#1a1c2c] to-[#121214] relative text-[#F5F2ED] p-8">
+    <main className="flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#1a1c2c] to-[#121214] relative text-[#F5F2ED] p-4 md:p-8">
       {/* Header */}
-      <header className="max-w-5xl mx-auto mb-8 border-b border-[#D4AF37]/20 pb-6 flex items-center justify-between">
+      <header className="max-w-5xl mx-auto mb-8 border-b border-[#D4AF37]/20 pb-6 flex flex-wrap items-center justify-between gap-4 pl-12 md:pl-0">
         <div>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-[#232326] border border-[#D4AF37]/30 text-[#D4AF37] rounded">
@@ -102,7 +102,7 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
             <h2 className="text-lg font-serif text-[#D4AF37]">流派プリセットの一括選択</h2>
           </div>
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {Object.entries(SCHOOL_PRESETS).map(([key, preset]) => {
               const isSelected = activePresetKey === key;
               return (
@@ -149,7 +149,7 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* 1. Zodiac System */}
             <div className="bg-[#1A1A1B] border border-[#D4AF37]/20 p-6 space-y-4">
               <div className="flex items-center gap-2 border-b border-[#D4AF37]/10 pb-3">

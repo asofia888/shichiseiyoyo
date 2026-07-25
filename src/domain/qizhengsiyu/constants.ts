@@ -82,6 +82,89 @@ export function getMansionAtLongitude(chartLon: number, mansionOffset: number): 
   return best;
 }
 
+// 人事十二宮 (命宮・財帛宮…)。命宮から黄経の順行方向に配当する。
+// この並びは西洋占星術のハウス1〜12(命=1室・財帛=2室・兄弟=3室…相貌=12室)と一対一で対応し、
+// ヘレニズム→印度→中国という伝来の経緯とも整合する。盤上では地支が卯→寅→丑…と逆行する。
+// 分割は整宮制 (宮の境界＝十二次の境界) とし、命度の入る十二次の全体を命宮とする。
+//
+// 名称の定義は api/_lib/rule-texts.ts に置き、そこを単一情報源とする
+// (AI鑑定APIのパラメータ検証と表示で宮名がずれると根拠と文章が食い違うため)。
+export { PERSON_HOUSE_NAMES as PERSON_HOUSES } from '../../../api/_lib/rule-texts';
+import { PERSON_HOUSE_NAMES, HOUSE_LORDS, MANSION_LORDS } from '../../../api/_lib/rule-texts';
+
+// 七曜配当から命度主・宿主に用いる星曜名への対応
+const LUMINARY_TO_STAR: Record<string, string> = {
+  日: '太陽', 月: '月', 火: '火星', 水: '水星', 木: '木星', 金: '金星', 土: '土星',
+};
+
+/** 命主 = 命宮(十二次)の宮主星。生涯の主星として最も重く見る。 */
+export function getMingZhu(ascendant: number): string {
+  return HOUSE_LORDS[getHouseAtLongitude(ascendant).name];
+}
+
+/** 命度主 = 命度が落ちる宿の宿主星(七曜配当)。命宮の性質がどう現れるかを細かく示す。 */
+export function getMingDuZhu(ascendant: number, mansionOffset: number): { mansionName: string; luminary: string; star: string } {
+  const mansionName = getMansionAtLongitude(ascendant, mansionOffset).name;
+  const luminary = MANSION_LORDS[mansionName];
+  return { mansionName, luminary, star: LUMINARY_TO_STAR[luminary] };
+}
+
+// 黄経から十二次(白羊〜双魚)を求める。境界は0/30/60…度の固定値。
+export function getHouseAtLongitude(lon: number): House {
+  const normalized = ((lon % 360) + 360) % 360;
+  const index = Math.floor(normalized / 30);
+  return MVP_HOUSES[index] ?? MVP_HOUSES[0];
+}
+
+// 黄経が命宮から何宮目にあたるかを求め、人事十二宮の宮名を返す (整宮制)。
+export function getPersonHouseAt(lon: number, ascendant: number): { index: number; name: string } {
+  const bodySign = Math.floor((((lon % 360) + 360) % 360) / 30);
+  const ascSign = Math.floor((((ascendant % 360) + 360) % 360) / 30);
+  const index = (bodySign - ascSign + 12) % 12;
+  return { index, name: PERSON_HOUSE_NAMES[index] };
+}
+
+// 周天の度数体系。古法の宿度は365.25度周天(一日一度の歳周に由来)で数える。
+const ANCIENT_DEGREES_PER_CIRCLE = 365.25;
+
+export interface MansionPosition {
+  mansion: Mansion;
+  degree: number; // 入宿度 (360°法)
+  ancientDegree: number; // 入宿度 (古度・365.25度周天)
+  label: string; // 「柳宿 12.46°（柳十二度）」形式の表示用文字列
+}
+
+// 命盤座標系の黄経から、落宿とその宿に入ってからの度数(入宿度)を求める。
+// 古法は「日躔柳宿十二度」のように宿の起点からの度数で読むため、宿名だけでは実務に使えない。
+export function getMansionPosition(chartLon: number, mansionOffset: number): MansionPosition {
+  const mansion = getMansionAtLongitude(chartLon, mansionOffset);
+  let lon = (chartLon - mansionOffset) % 360;
+  if (lon < 0) lon += 360;
+  let degree = (lon - mansion.startLongitude) % 360;
+  if (degree < 0) degree += 360;
+  // getMansionAtLongitude と同じ丸め防御。境界ちょうどの値で 360° にならないようにする
+  if (degree > 360 - 1e-9) degree = 0;
+  const ancientDegree = degree * (ANCIENT_DEGREES_PER_CIRCLE / 360);
+  const ancientWhole = Math.floor(ancientDegree);
+  // 古法は宿の起点を「初度」と呼び、そこから一度・二度…と数える
+  const ancientLabel = ancientWhole === 0 ? '初度' : `${toChineseNumeral(ancientWhole)}度`;
+  return {
+    mansion,
+    degree,
+    ancientDegree,
+    label: `${mansion.name}宿 ${degree.toFixed(2)}°（${mansion.name}${ancientLabel}）`,
+  };
+}
+
+// 入宿度の古度表記用。宿の幅は最大でも約31度なので0〜39までで足りる。
+function toChineseNumeral(n: number): string {
+  const digits = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  if (n < 10) return digits[n];
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  return `${tens === 1 ? '' : digits[tens]}十${ones === 0 ? '' : digits[ones]}`;
+}
+
 export const MVP_HOUSES: House[] = [
   { id: 'aries', name: '白羊', branch: '戌', startLongitude: 0, width: 30 },
   { id: 'taurus', name: '金牛', branch: '酉', startLongitude: 30, width: 30 },

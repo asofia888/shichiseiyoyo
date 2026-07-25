@@ -9,6 +9,9 @@ export interface BirthInput {
   longitude: number;
   timezoneOffset: number; // hours from UTC
   isDaylightSaving?: boolean;
+  // 大限・小限の順逆を陽男陰女で決めるために使う。
+  // 性別欄を設ける前に保存された履歴には存在しないため任意項目。
+  gender?: 'male' | 'female';
 }
 
 export interface CelestialPosition {

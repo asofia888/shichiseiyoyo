@@ -1,4 +1,11 @@
-import { CelestialPosition, ChartAngles } from '../astronomy/types';
+import { BirthInput, CelestialPosition, ChartAngles } from '../astronomy/types';
+
+// 命盤そのもの以外に判定へ必要な情報 (大限・流年は生年と鑑定年が要る)
+export interface RuleContext {
+  input: BirthInput;
+  /** 運勢を見る年。未指定なら大限・流年は判定しない。 */
+  targetYear?: number;
+}
 
 export interface RuleHit {
   ruleId: string;
@@ -19,5 +26,5 @@ export interface QzsyRule {
   id: string;
   title: string;
   category: string;
-  evaluate: (positions: CelestialPosition[], angles: ChartAngles) => RuleHit | null;
+  evaluate: (positions: CelestialPosition[], angles: ChartAngles, ctx?: RuleContext) => RuleHit | null;
 }

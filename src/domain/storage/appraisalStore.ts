@@ -1,5 +1,6 @@
 import { BirthInput } from '../astronomy/types';
 import { RuleHit } from '../rules/types';
+import { SchoolConfig } from '../qizhengsiyu/schoolConfig';
 
 export interface AppraisalRecord {
   id: string;
@@ -7,6 +8,13 @@ export interface AppraisalRecord {
   input: BirthInput;
   ruleHits: RuleHit[];
   appraisalText: string | null;
+  // 保存時の流派設定。これがないと、後で別の流派設定で開いたときに
+  // 同じレコードから違う命盤が出てしまい再現性がなくなる。
+  // 旧バージョンで保存されたレコードには存在しない (undefined)。
+  schoolConfig?: SchoolConfig;
+  // 鑑定文を生成したときに見ていた年。これがないと、2026年に作った鑑定文を
+  // 翌年に開いたとき、本文は2026年の流年なのに画面は2027年になってしまう。
+  targetYear?: number;
 }
 
 const STORAGE_KEY = 'qzsy_appraisals';

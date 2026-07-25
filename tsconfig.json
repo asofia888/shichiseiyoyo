@@ -9,6 +9,10 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -22,5 +26,8 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  // ビルド成果物 (dist / server-dist) まで型検査に含めないよう、対象を明示する。
+  // allowJs: true なので、指定しないとビルド後に npm run lint が壊れうる。
+  "include": ["src", "api", "server.ts", "vite.config.ts", "vitest.config.ts"]
 }
