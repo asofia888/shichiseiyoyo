@@ -77,19 +77,34 @@ ${JSON.stringify(ruleHits, null, 2)}
       model: 'gemini-3.6-flash',
       contents: prompt
     });
-    return { status: 200, body: { text: response.text } };
-  } catch (e: any) {
-    console.error('API Error:', e);
-    let errorMessage = '鑑定文の生成中にエラーが発生しました。';
-
-    const errorStr = typeof e === 'object' ? JSON.stringify(e) + String(e) : String(e);
-    if (errorStr.includes('503') || errorStr.includes('UNAVAILABLE') || e?.status === 503) {
-      errorMessage = '現在、AIモデルが混み合っており一時的に利用できません。しばらくしてから再度お試しください。';
-    } else if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED') || errorStr.includes('quota') || e?.status === 429) {
-      errorMessage = 'AIの利用制限(クォータ)に達しました。時間をおいてから再度お試しください。';
+    // 安全フィルタ等で本文が空のまま返ることがある。空を成功扱いにすると、
+    // クライアントが空の鑑定文を履歴に保存してしまう。
+    if (!response.text) {
+      return { status: 502, body: { error: '鑑定文を生成できませんでした。時間をおいてから再度お試しください。' } };
     }
-
-    // クライアント側は {error} フィールドを表示する設計のため 200 で返す (既存Expressと同じ挙動)
-    return { status: 200, body: { error: errorMessage } };
+    return { status: 200, body: { text: response.text } };
+  } catch (e) {
+    console.error('API Error:', e);
+    return describeGeminiError(e);
   }
+}
+
+// Gemini 呼び出しの失敗を HTTP ステータスと利用者向けの文面に振り分ける。
+// 失敗は必ず 2xx 以外で返す。200 で返すと、クライアントがエラー文を鑑定文として扱ってしまう。
+export function describeGeminiError(e: unknown): AppraisalResult {
+  let errorStr = String(e);
+  try {
+    errorStr = JSON.stringify(e) + errorStr;
+  } catch {
+    // 循環参照を含むエラーオブジェクトは文字列化だけで判定する
+  }
+  const status = typeof e === 'object' && e !== null ? (e as { status?: unknown }).status : undefined;
+
+  if (errorStr.includes('503') || errorStr.includes('UNAVAILABLE') || status === 503) {
+    return { status: 503, body: { error: '現在、AIモデルが混み合っており一時的に利用できません。しばらくしてから再度お試しください。' } };
+  }
+  if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED') || errorStr.includes('quota') || status === 429) {
+    return { status: 429, body: { error: 'AIの利用制限(クォータ)に達しました。時間をおいてから再度お試しください。' } };
+  }
+  return { status: 502, body: { error: '鑑定文の生成中にエラーが発生しました。' } };
 }

@@ -1,4 +1,5 @@
-import { QzsyRule } from '../types';
+import { QzsyRule, RuleContext } from '../types';
+import { isBirthTimeUnknown } from '../../qizhengsiyu/birth-time';
 import {
   getHouseAtLongitude,
   getMansionAtLongitude,
@@ -8,7 +9,7 @@ import {
   MVP_HOUSES,
 } from '../../qizhengsiyu/constants';
 import { getAspectsTo, groupByKind } from '../../qizhengsiyu/aspects';
-import { computeFortune } from '../../qizhengsiyu/fortune';
+import { computeFortune, formatAgeRange } from '../../qizhengsiyu/fortune';
 import { buildCanonicalRuleHit, SEVEN_GOVERNORS } from '../../../../api/_lib/rule-texts';
 
 // 下の七政の対表が rule-texts.ts 側の正規名と食い違っていないことを起動時に確かめる
@@ -26,19 +27,29 @@ if (PAIRED_STAR_NAMES.join() !== SEVEN_GOVERNORS.join()) {
 const getHouse = getHouseAtLongitude;
 const signOf = (lon: number) => Math.floor(((lon % 360) + 360) % 360 / 30);
 
-/** 星曜の落宮・人事宮・落宿をルールのパラメータに変換する */
+/** 時刻不明の命盤で、出生日のうちに落宮・落宿が変わる星曜か */
+const isDayUncertain = (ctx: RuleContext | undefined, bodyId: string) =>
+  !!ctx?.uncertainBodyIds?.includes(bodyId);
+
+/**
+ * 星曜の落宮・人事宮・落宿をルールのパラメータに変換する。
+ * 出生時刻が不明なら人事宮 (命宮から数える) は付けない。
+ * その日のうちに落宮・落宿が変わる星曜は位置が確定しないので判定しない。
+ */
 function placementParams(
   positions: { id: string; name: string; longitude: number }[],
   bodyId: string,
-  angles: { ascendant: number; mansionOffset: number }
+  angles: { ascendant: number; mansionOffset: number },
+  ctx: RuleContext | undefined
 ) {
   const body = positions.find(p => p.id === bodyId);
-  if (!body) return null;
+  if (!body || isDayUncertain(ctx, bodyId)) return null;
+  const timeUnknown = !!ctx && isBirthTimeUnknown(ctx.input);
   return {
     body,
     params: {
       houseName: getHouse(body.longitude).name,
-      personHouseName: getPersonHouseAt(body.longitude, angles.ascendant).name,
+      ...(timeUnknown ? {} : { personHouseName: getPersonHouseAt(body.longitude, angles.ascendant).name }),
       mansionName: getMansionAtLongitude(body.longitude, angles.mansionOffset).name,
     },
   };
@@ -50,8 +61,8 @@ function sevenGovernorRule(bodyId: string, starName: string): QzsyRule {
     id: `r_star_placement_${bodyId}`,
     title: `${starName}の落宮と廟旺`,
     category: 'nature',
-    evaluate: (positions, angles) => {
-      const found = placementParams(positions, bodyId, angles);
+    evaluate: (positions, angles, ctx) => {
+      const found = placementParams(positions, bodyId, angles, ctx);
       if (!found) return null;
       const params = { starName, ...found.params };
       const hit = buildCanonicalRuleHit('r_star_placement', params);
@@ -67,8 +78,8 @@ function siyuPlacementRule(bodyId: string, ruleId: string, title: string): QzsyR
     id: ruleId,
     title,
     category: 'theme',
-    evaluate: (positions, angles) => {
-      const found = placementParams(positions, bodyId, angles);
+    evaluate: (positions, angles, ctx) => {
+      const found = placementParams(positions, bodyId, angles, ctx);
       if (!found) return null;
       const hit = buildCanonicalRuleHit(ruleId, found.params);
       return hit ? { ...hit, params: found.params } : null;
@@ -80,6 +91,7 @@ export const MVP_RULES: QzsyRule[] = [
   // 命主: 命宮の宮主星がどこに在るか。七政四余で最も重く見る一つ。
   {
     id: 'r_ming_zhu',
+    requiresBirthTime: true,
     title: '命主の在処',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -101,6 +113,7 @@ export const MVP_RULES: QzsyRule[] = [
   // どんな状態かまで渡す (宿名だけでは読み手に判断を丸投げすることになる)。
   {
     id: 'r_ming_du_zhu',
+    requiresBirthTime: true,
     title: '命度主',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -119,6 +132,7 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_general_asc',
+    requiresBirthTime: true,
     title: '命宮の基本性質',
     category: 'nature',
     evaluate: (_positions, angles) => {
@@ -130,6 +144,7 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_jupiter_angle',
+    requiresBirthTime: true,
     title: '木星の好配置',
     category: 'career',
     evaluate: (positions, angles) => {
@@ -144,18 +159,21 @@ export const MVP_RULES: QzsyRule[] = [
   // 大限・小限・流年。鑑定年が渡されたときだけ判定する。
   {
     id: 'r_da_xian',
+    requiresBirthTime: true,
     title: '大限',
     category: 'fortune',
     evaluate: (_positions, angles, ctx) => {
       if (!ctx?.targetYear) return null;
-      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear);
-      if (!f) return null;
+      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod);
+      // 果老式で年分歌の範囲を超える年齢では大限を立てない
+      if (!f || !f.daXian) return null;
       const params = {
+        method: f.method,
         houseName: f.daXian.houseName,
         personHouseName: f.daXian.personHouseName,
         direction: f.direction,
-        ageRange: `${f.daXianRange[0]}〜${f.daXianRange[1]}歳`,
-        index: String(f.daXianIndex),
+        ageRange: formatAgeRange(f.daXian.range),
+        index: String(f.daXian.index),
         xiaoXianHouse: f.xiaoXian.personHouseName,
       };
       const hit = buildCanonicalRuleHit('r_da_xian', params);
@@ -164,11 +182,12 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_liu_nian',
+    requiresBirthTime: true,
     title: '流年',
     category: 'fortune',
     evaluate: (_positions, angles, ctx) => {
       if (!ctx?.targetYear) return null;
-      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear);
+      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod);
       if (!f) return null;
       const params = {
         houseName: f.liuNian.houseName,
@@ -184,6 +203,7 @@ export const MVP_RULES: QzsyRule[] = [
   // AIには要になるこの2件だけを渡す。
   {
     id: 'r_ming_gong_aspects',
+    requiresBirthTime: true,
     title: '命宮の会合',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -195,6 +215,7 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_ming_zhu_aspects',
+    requiresBirthTime: true,
     title: '命主の会合',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -211,6 +232,7 @@ export const MVP_RULES: QzsyRule[] = [
   // 格局
   {
     id: 'r_geju_sun_moon_embrace',
+    requiresBirthTime: true,
     title: '格局: 日月夾命',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -234,10 +256,11 @@ export const MVP_RULES: QzsyRule[] = [
     id: 'r_geju_sun_moon_same',
     title: '格局: 日月同宮',
     category: 'nature',
-    evaluate: (positions) => {
+    evaluate: (positions, _angles, ctx) => {
       const sun = positions.find(p => p.id === 'Sun');
       const moon = positions.find(p => p.id === 'Moon');
       if (!sun || !moon) return null;
+      if (isDayUncertain(ctx, 'Sun') || isDayUncertain(ctx, 'Moon')) return null;
       if (signOf(sun.longitude) !== signOf(moon.longitude)) return null;
       const params = { stars: '太陽・月', houseName: getHouse(sun.longitude).name };
       const hit = buildCanonicalRuleHit('r_geju_sun_moon_same', params);
@@ -246,6 +269,7 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_geju_lord_in_ming',
+    requiresBirthTime: true,
     title: '格局: 命主居命',
     category: 'nature',
     evaluate: (positions, angles) => {
@@ -262,9 +286,9 @@ export const MVP_RULES: QzsyRule[] = [
     id: 'r_geju_cluster',
     title: '格局: 聚星',
     category: 'nature',
-    evaluate: (positions) => {
-      // 七政のうち3つ以上が同一宮に集まるか
-      const sevens = positions.filter(p => PAIRED_STAR_NAMES.includes(p.name));
+    evaluate: (positions, _angles, ctx) => {
+      // 七政のうち3つ以上が同一宮に集まるか (位置が確定しない星曜は数えない)
+      const sevens = positions.filter(p => PAIRED_STAR_NAMES.includes(p.name) && !isDayUncertain(ctx, p.id));
       const bySign = new Map<number, string[]>();
       for (const p of sevens) {
         const s = signOf(p.longitude);
@@ -282,6 +306,7 @@ export const MVP_RULES: QzsyRule[] = [
   },
   {
     id: 'r_geju_toward_ming',
+    requiresBirthTime: true,
     title: '格局: 七政朝命',
     category: 'nature',
     evaluate: (positions, angles) => {

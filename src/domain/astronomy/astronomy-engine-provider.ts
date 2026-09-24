@@ -265,6 +265,9 @@ export class AstronomyEngineProvider implements EphemerisProvider {
 
       // 実際のアセンダントは一時辰(2時間)ごとに黄経が約+30°前進する。
       // 卯時(日の出)に命宮=太陽宮、以降は一時辰ごとに+1宮。
+      // 命度は太陽の宮内度数をそのまま命宮に写す「同絡」による
+      // (例: 太陽が酉宮15度なら命度は命宮の15度)。時辰内の刻・分で度数を加減する算法は
+      // 典拠を確認できていないため採らない。同じ日の同じ時辰の生まれは命度も同じになる。
       const offsetHouses = (shichenIndex - 3 + 12) % 12;
       ascendantLon = (sunSiderealLon + offsetHouses * 30) % 360;
     }

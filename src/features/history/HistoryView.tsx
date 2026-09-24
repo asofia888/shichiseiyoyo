@@ -2,6 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { getAppraisals, deleteAppraisal, AppraisalRecord } from '../../domain/storage/appraisalStore';
+import { isBirthTimeUnknown } from '../../domain/qizhengsiyu/birth-time';
 import { Trash2, Eye, Calendar, User, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface Props {
@@ -56,7 +57,7 @@ export function HistoryView({ onSelectAppraisal }: Props) {
                     </div>
 
                     <div className="space-y-1 text-xs text-[#F5F2ED]/60 mb-4">
-                      <p>日時: {record.input.birthDate} {record.input.birthTime}</p>
+                      <p>日時: {record.input.birthDate} {isBirthTimeUnknown(record.input) ? '時刻不明' : record.input.birthTime}</p>
                       <p>場所: 緯度 {record.input.latitude.toFixed(2)}°, 経度 {record.input.longitude.toFixed(2)}°</p>
                       <p>流派: {record.schoolConfig?.name ?? '（未記録・既定で開きます）'}</p>
                     </div>

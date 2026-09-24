@@ -5,6 +5,8 @@ import { AspectKind } from '../../../api/_lib/rule-texts';
 interface Props {
   positions: CelestialPosition[];
   ascendant: number;
+  /** 出生時刻が不明なら命宮が定まらないので、命宮の行・列を出さない */
+  timeUnknown?: boolean;
 }
 
 // 会合の種別ごとの記号と色。表を一目で読めるようにする。
@@ -16,9 +18,9 @@ const ASPECT_STYLE: Record<AspectKind, { mark: string; className: string }> = {
   六合: { mark: '六', className: 'text-[#8A9A5B]' },
 };
 
-export function AspectGrid({ positions, ascendant }: Props) {
+export function AspectGrid({ positions, ascendant, timeUnknown = false }: Props) {
   // 命宮を先頭に加えて、命宮に対する会合も同じ表で読めるようにする
-  const rows = [{ id: '__ming', name: '命宮', longitude: ascendant }, ...positions];
+  const rows = timeUnknown ? positions : [{ id: '__ming', name: '命宮', longitude: ascendant }, ...positions];
 
   return (
     <div className="space-y-4">

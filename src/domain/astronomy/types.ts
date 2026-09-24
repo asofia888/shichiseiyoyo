@@ -9,6 +9,9 @@ export interface BirthInput {
   longitude: number;
   timezoneOffset: number; // hours from UTC
   isDaylightSaving?: boolean;
+  // 座標と出生日時から自動判定した IANA タイムゾーン名 (例: Asia/Tokyo)。
+  // 手動で入力した場合と、自動判定を設ける前に保存された履歴には存在しない。
+  timeZone?: string;
   // 大限・小限の順逆を陽男陰女で決めるために使う。
   // 性別欄を設ける前に保存された履歴には存在しないため任意項目。
   gender?: 'male' | 'female';

@@ -10,6 +10,10 @@ export const LABEL_CLEARANCE_PX = 24;
 interface Props {
   positions: CelestialPosition[];
   angles: ChartAngles;
+  /** 出生時刻が不明なら命宮が定まらないので、命宮の印と人事十二宮を描かない */
+  timeUnknown?: boolean;
+  /** 出生日のうちに落宮・落宿が変わる星曜。記号に「?」を添える */
+  uncertainBodyIds?: string[];
 }
 
 // 命盤上の星曜は伝統的に一文字で書く (日月水金火木土・羅計孛氣)。
@@ -34,7 +38,7 @@ const BODY_COLORS: Record<string, string> = {
   Ziqi: '#B57EDC',
 };
 
-export function CelestialChart({ positions, angles }: Props) {
+export function CelestialChart({ positions, angles, timeUnknown = false, uncertainBodyIds = [] }: Props) {
   const size = 500;
   const center = size / 2;
   const rOuter = 240;
@@ -57,7 +61,8 @@ export function CelestialChart({ positions, angles }: Props) {
   // We rotate the whole SVG so that Ascendant is on the left (or whatever layout is standard).
   // Often Ascendant is on the left (9 o'clock), so if Ascendant is 'asc',
   // we rotate the chart by -asc - 90.
-  const chartRotation = -angles.ascendant - 90;
+  // 時刻不明のときは命宮がないので、白羊宮の起点(黄経0°)を左に置く
+  const chartRotation = timeUnknown ? -90 : -angles.ascendant - 90;
 
   const normalize = (deg: number) => ((deg % 360) + 360) % 360;
 
@@ -146,7 +151,7 @@ export function CelestialChart({ positions, angles }: Props) {
 
         {/* 人事十二宮 (命宮・財帛宮…) — 命宮から黄経順行に整宮制で配当 */}
         <circle cx={center} cy={center} r={rPersonInner} fill="none" stroke="#D4AF37" strokeWidth="1" opacity="0.7" />
-        {MVP_HOUSES.map((house) => {
+        {!timeUnknown && MVP_HOUSES.map((house) => {
           const mid = house.startLongitude + house.width / 2;
           const person = getPersonHouseAt(mid, angles.ascendant);
           const pStart1 = getCoords(rHousesInner, house.startLongitude);
@@ -175,12 +180,14 @@ export function CelestialChart({ positions, angles }: Props) {
         <circle cx={center} cy={center} r={rZodiacInner} fill="none" stroke="#D4AF37" strokeWidth="0.5" opacity="0.5" />
 
         {/* Ascendant Marker */}
-        <line 
-          x1={center} y1={center} 
-          x2={getCoords(rOuter, angles.ascendant).x} 
-          y2={getCoords(rOuter, angles.ascendant).y} 
-          stroke="#E34234" strokeWidth="2" strokeDasharray="4 2" 
-        />
+        {!timeUnknown && (
+          <line
+            x1={center} y1={center}
+            x2={getCoords(rOuter, angles.ascendant).x}
+            y2={getCoords(rOuter, angles.ascendant).y}
+            stroke="#E34234" strokeWidth="2" strokeDasharray="4 2"
+          />
+        )}
 
         {/* Celestial Bodies — 位置は真の黄経のまま、重なるものだけ内側の段へ逃がす */}
         {bodyPlacements.map(({ body: pos, radius }) => {
@@ -203,6 +210,7 @@ export function CelestialChart({ positions, angles }: Props) {
                   <text x="7" y="3.5" fill={color} fontSize="11" fontWeight="bold">
                     {BODY_GLYPHS[pos.id] ?? pos.name}
                     {pos.isRetrograde && <tspan fill="#E34234" fontSize="8">逆</tspan>}
+                    {uncertainBodyIds.includes(pos.id) && <tspan fill="#E34234" fontSize="8">?</tspan>}
                   </text>
                 </g>
               </g>
@@ -215,10 +223,10 @@ export function CelestialChart({ positions, angles }: Props) {
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
         <div className="text-[10px] uppercase tracking-[0.2em] opacity-50">命宮</div>
         <div className="text-xl font-serif text-[#D4AF37] leading-tight">
-          {getHouseAtLongitude(angles.ascendant).branch}
+          {timeUnknown ? '—' : getHouseAtLongitude(angles.ascendant).branch}
         </div>
         <div className="text-[10px] text-[#F5F2ED]/60">
-          {getHouseAtLongitude(angles.ascendant).name}
+          {timeUnknown ? '時刻不明' : getHouseAtLongitude(angles.ascendant).name}
         </div>
       </div>
     </div>

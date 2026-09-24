@@ -243,7 +243,7 @@ describe('基準命盤での判定 (1988-08-15 14:30 JST 東京・伝統古法)'
     const config = { ...SCHOOL_PRESETS.traditional, ziqiOption: 'cycle_28' as const };
     const positions = await provider.calculateBodies(GOLDEN, config);
     const angles = await provider.calculateAngles(GOLDEN, config);
-    const hits = engine.evaluateAll(positions, angles, { input: { ...GOLDEN, gender: 'male' }, targetYear: 2026 });
+    const hits = engine.evaluateAll(positions, angles, { input: { ...GOLDEN, gender: 'male' }, targetYear: 2026, fortuneMethod: 'guolao' });
     expect(hits.length).toBeLessThanOrEqual(30);
     expect(hits.length).toBeGreaterThanOrEqual(13); // 七政7 + 四余4 + 命主 + 命度主 + 命宮
   });
@@ -261,7 +261,7 @@ describe('基準命盤での判定 (1988-08-15 14:30 JST 東京・伝統古法)'
         };
         const positions = await provider.calculateBodies(bi, config);
         const angles = await provider.calculateAngles(bi, config);
-        const hits = engine.evaluateAll(positions, angles, { input: bi, targetYear: 2026 });
+        const hits = engine.evaluateAll(positions, angles, { input: bi, targetYear: 2026, fortuneMethod: 'guolao' });
         worst = Math.max(worst, hits.length);
       }
     }

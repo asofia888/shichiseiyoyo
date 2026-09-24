@@ -22,7 +22,17 @@ export interface CanonicalRuleHit {
 // 保存済みの鑑定文がどの版で生成されたかを後から辿れるようにするため。
 // 2.0.0: 人事十二宮・入宿度・命主/命度主・廟旺・五行生剋・三方四正・格局・大限流年を追加し、
 //        r_sun_leo / r_moon_cancer / r_asc_sun_conjunct を r_star_placement に統合
-const RULE_SET_VERSION = '2.0.0';
+// 2.1.0: 大限に『果老星宗』式 (命宮から逆行・十二宮年分歌・童限) を追加し既定にした。
+//        旧来の陽男陰女・一宮十年は流派設定で選べる方式として残す
+// 2.2.0: 出生時刻が不明な命盤では、落宮ルールに人事宮を付けない (命宮が定まらないため)
+// 2.3.0: 紫氣の落宮に、位置の計算が試験的であることの但し書きを付ける
+export const RULE_SET_VERSION = '2.3.0';
+
+// 人事宮は任意パラメータ。出生時刻が不明な命盤では命宮が定まらないので送られてこない。
+// 送られてきた場合はホワイトリストで検証する (不正なら false)。
+function isValidOptionalPersonHouse(personHouseName: string | undefined): boolean {
+  return personHouseName === undefined || PERSON_HOUSE_NAMES.includes(personHouseName);
+}
 
 // 十二宮名 → 地支 の正規対応 (パラメータ検証にも使う)。
 // 参照には必ず lookupBranch() を使うこと。素の添字参照だと "constructor" 等の
@@ -252,7 +262,7 @@ function buildSiyuPlacement(key: string, ruleId: string): RuleBuilder {
     const { houseName, personHouseName, mansionName } = params;
     const branch = lookupBranch(houseName);
     if (!branch) return null;
-    if (!personHouseName || !PERSON_HOUSE_NAMES.includes(personHouseName)) return null;
+    if (!isValidOptionalPersonHouse(personHouseName)) return null;
     if (!mansionName || !MANSION_NAMES.includes(mansionName)) return null;
     const wuxing = getStarMansionRelation(meaning.star, mansionName);
     if (!wuxing) return null;
@@ -260,18 +270,22 @@ function buildSiyuPlacement(key: string, ruleId: string): RuleBuilder {
     const isMingGong = personHouseName === '命宮';
     return {
       ruleId,
-      title: `${meaning.star}が${personHouseName}に在中（${mansionName}宿・${wuxing.relation}）`,
+      title: personHouseName
+        ? `${meaning.star}が${personHouseName}に在中（${mansionName}宿・${wuxing.relation}）`
+        : `${meaning.star}が${houseName}宮に在中（${mansionName}宿・${wuxing.relation}）`,
       category: isMingGong ? 'nature' : 'theme',
       evidence: [
         `${meaning.star}在${branch}(${houseName})宮`,
-        `${personHouseName}`,
+        ...(personHouseName ? [personHouseName] : []),
         `${mansionName}宿`,
         wuxing.evidence,
       ],
       interpretation:
-        `${meaning.star}が${houseName}宮（${branch}）の${personHouseName}に在り、${mansionName}宿に落ちます。` +
+        `${meaning.star}が${houseName}宮（${branch}）${personHouseName ? `の${personHouseName}` : ''}に在り、${mansionName}宿に落ちます。` +
         `${isMingGong ? meaning.mingGong : meaning.core}` +
-        RELATION_TEXTS[wuxing.relation],
+        RELATION_TEXTS[wuxing.relation] +
+        // 紫氣は起点の値の出典が未確認なので、位置そのものが確かでないことをAIにも伝える
+        (key === 'ziqi' ? 'ただし紫氣の位置は、起点の出典を確認できていない試験的な計算によるため、参考程度に扱います。' : ''),
       strength: isMingGong ? 4 : 3,
       priority: isMingGong ? meaning.priority + 2 : meaning.priority,
       sourceId: '通説（典拠未確定）',
@@ -297,7 +311,7 @@ const buildStarPlacement: RuleBuilder = (params) => {
   if (!starName || !SEVEN_GOVERNORS.includes(starName)) return null;
   const branch = lookupBranch(houseName);
   if (!branch) return null;
-  if (!personHouseName || !PERSON_HOUSE_NAMES.includes(personHouseName)) return null;
+  if (!isValidOptionalPersonHouse(personHouseName)) return null;
   if (!mansionName || !MANSION_NAMES.includes(mansionName)) return null;
   const wuxing = getStarMansionRelation(starName, mansionName);
   if (!wuxing) return null;
@@ -308,17 +322,17 @@ const buildStarPlacement: RuleBuilder = (params) => {
 
   return {
     ruleId: 'r_star_placement',
-    title: `${starName}が${houseName}宮（${dignity}）・${personHouseName}`,
+    title: `${starName}が${houseName}宮（${dignity}）${personHouseName ? `・${personHouseName}` : ''}`,
     category: 'nature',
     evidence: [
       `${starName}在${branch}(${houseName})宮`,
       `${dignity}`,
-      `${personHouseName}`,
+      ...(personHouseName ? [personHouseName] : []),
       `${mansionName}宿`,
       wuxing.evidence,
     ],
     interpretation:
-      `${starName}が${houseName}宮（${branch}）の${personHouseName}に在り、${mansionName}宿に落ちます。` +
+      `${starName}が${houseName}宮（${branch}）${personHouseName ? `の${personHouseName}` : ''}に在り、${mansionName}宿に落ちます。` +
       `${SEVEN_GOVERNOR_TRAITS[starName]}` +
       `${DIGNITY_TEXTS[dignity]}${RELATION_TEXTS[wuxing.relation]}`,
     strength: strong ? 5 : dignity === '平' ? 3 : 2,
@@ -462,40 +476,50 @@ function buildGeju(ruleId: string): RuleBuilder {
 }
 
 // ---- 大限・小限・流年 --------------------------------------------------------
-// 採用した説: 大限=命宮を第1とし一宮十年、小限=一年一宮、いずれも陽男陰女＝順行。
-// 流年=その年の太歳(年支)が入る十二次。流派差が大きいため出典は通説とする。
+// 大限の方式は流派設定で選ぶ (src/domain/qizhengsiyu/fortune.ts に定義と出典を記す):
+// - guolao: 『果老星宗』十二宮年分歌。命宮から相貌→福徳→官禄…と逆行し、宮ごとに年数が異なる
+// - yinyang_decade: 命宮を第1とし一宮十年、陽男陰女＝順行 (紫微斗数・子平の大運に近い運用)
+// 流年=その年の太歳(年支)が入る十二次。
 const FORTUNE_DIRECTIONS = ['順行', '逆行'];
+const FORTUNE_METHODS = ['guolao', 'yinyang_decade'];
 
 const buildDaXian: RuleBuilder = (params) => {
   const { houseName, personHouseName, direction, ageRange, index } = params;
+  // 方式を送らない旧クライアント(キャッシュ済みのPWA等)は一宮十年で計算している
+  const method = params.method ?? 'yinyang_decade';
+  if (!FORTUNE_METHODS.includes(method)) return null;
   const branch = lookupBranch(houseName);
   if (!branch) return null;
   if (!personHouseName || !PERSON_HOUSE_NAMES.includes(personHouseName)) return null;
   if (!direction || !FORTUNE_DIRECTIONS.includes(direction)) return null;
-  if (!ageRange || !/^\d{1,3}〜\d{1,3}歳$/.test(ageRange)) return null;
+  // 果老式は童限により年齢の境界に端数が出る (例: 13.4〜23.4歳)
+  if (!ageRange || !/^\d{1,3}(\.\d)?〜\d{1,3}(\.\d)?歳$/.test(ageRange)) return null;
   if (!index || !/^\d{1,2}$/.test(index)) return null;
 
   const xiaoXianHouse = params.xiaoXianHouse;
   const hasXiaoXian = !!xiaoXianHouse && PERSON_HOUSE_NAMES.includes(xiaoXianHouse);
+  const isGuolao = method === 'guolao';
 
   return {
     ruleId: 'r_da_xian',
     title: `第${index}大限（${ageRange}）は${houseName}宮・${personHouseName}`,
     category: 'fortune',
     evidence: [
-      `大限は命宮より${direction}・一宮十年`,
+      isGuolao ? '大限は命宮より逆行・宮ごとの年数は十二宮年分歌による' : `大限は命宮より${direction}・一宮十年`,
       `第${index}大限=${branch}(${houseName})宮`,
       personHouseName,
       ...(hasXiaoXian ? [`小限=${xiaoXianHouse}`] : []),
     ],
     interpretation:
       `${ageRange}は第${index}大限で、${houseName}宮（${branch}）＝${personHouseName}が主題になります。` +
-      `大限は命宮から${direction}に一宮十年で進みます。` +
-      `この十年は${personHouseName}が示す領域に物事が集まりやすく、ここを整えることが全体の底上げになります。` +
+      (isGuolao
+        ? '大限は命宮から相貌宮・福徳宮・官禄宮…と逆行し、宮ごとに受け持つ年数が異なります。'
+        : `大限は命宮から${direction}に一宮十年で進みます。`) +
+      `この期間は${personHouseName}が示す領域に物事が集まりやすく、ここを整えることが全体の底上げになります。` +
       (hasXiaoXian ? `この年の小限は${xiaoXianHouse}で、一年単位ではそちらの事柄が前に出ます。` : ''),
     strength: 4,
     priority: 16,
-    sourceId: '通説（典拠未確定）',
+    sourceId: isGuolao ? '果老星宗（十二宮年分歌・童限）' : '通説（典拠未確定）',
     ruleSetVersion: RULE_SET_VERSION,
   };
 };

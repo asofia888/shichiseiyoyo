@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Settings, Check, RotateCcw, Shield, Sparkles, Compass, Sun, Moon } from 'lucide-react';
-import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, MingGongMethod, RahuKetuAssignment, ShichenBasis } from '../../domain/qizhengsiyu/schoolConfig';
+import { Settings, Check, RotateCcw, Shield, Sparkles, Compass, Sun, Moon, Hourglass } from 'lucide-react';
+import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, MingGongMethod, RahuKetuAssignment, ShichenBasis, FortuneMethod, FORTUNE_METHOD_LABELS } from '../../domain/qizhengsiyu/schoolConfig';
 import { saveStoredSchoolConfig, resetStoredSchoolConfig } from '../../domain/storage/schoolConfigStore';
 
 interface Props {
@@ -50,7 +50,8 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
       SCHOOL_PRESETS[key].ziqiOption === currentConfig.ziqiOption &&
       SCHOOL_PRESETS[key].mingGongMethod === currentConfig.mingGongMethod &&
       SCHOOL_PRESETS[key].rahuKetuAssignment === currentConfig.rahuKetuAssignment &&
-      SCHOOL_PRESETS[key].shichenBasis === currentConfig.shichenBasis
+      SCHOOL_PRESETS[key].shichenBasis === currentConfig.shichenBasis &&
+      SCHOOL_PRESETS[key].fortuneMethod === currentConfig.fortuneMethod
   ) || 'custom';
 
   return (
@@ -128,6 +129,7 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                     <div>• 黄道: {preset.zodiacSystem.includes('sidereal') ? '恒星黄道 (Sidereal)' : '移動黄道 (Tropical)'}</div>
                     <div>• 安命: {preset.mingGongMethod === 'sun_mao_traditional' ? '太陽安命法 (伝統卯時)' : 'アセンダント法 (ASC)'}</div>
                     <div>• 四余: 紫氣{preset.ziqiOption === 'cycle_28' ? 'あり' : 'なし'}</div>
+                    <div>• 大限: {preset.fortuneMethod === 'guolao' ? '果老星宗式' : '陽男陰女・一宮十年'}</div>
                   </div>
                 </div>
               );
@@ -308,7 +310,7 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                         currentConfig.ziqiOption === 'cycle_28' ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]' : 'border-[#D4AF37]/10 text-[#F5F2ED]/60'
                       }`}
                     >
-                      算入する (28年周期伝統説)
+                      算入する (28年周期・試験的)
                     </button>
                     <button
                       type="button"
@@ -320,6 +322,10 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                       表示しない
                     </button>
                   </div>
+                  <p className="text-[11px] text-[#E34234]/80 mt-2 leading-relaxed">
+                    紫氣は28年で一周する説に基づいて計算しますが、起点の値は出典を確認できていない試験的なものです。
+                    算入すると、位置の確かでない紫氣が命盤と鑑定に加わります。
+                  </p>
                 </div>
               </div>
             </div>
@@ -413,6 +419,52 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                     />
                     <div>
                       <div className="text-xs font-bold">{item.label}</div>
+                      <div className="text-[11px] text-[#F5F2ED]/50 mt-0.5">{item.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* 6. Da Xian Method (大限の方式) */}
+            <div className="bg-[#1A1A1B] border border-[#D4AF37]/20 p-6 space-y-4">
+              <div className="flex items-center gap-2 border-b border-[#D4AF37]/10 pb-3">
+                <Hourglass size={16} className="text-[#D4AF37]" />
+                <h3 className="font-serif font-bold text-sm text-[#D4AF37]">大限の方式 (Da Xian)</h3>
+              </div>
+              <p className="text-xs text-[#F5F2ED]/60 leading-relaxed">
+                十年単位の運の流れ(大限)を、どの宮からどちら向きに、何年ずつ進めるかを設定します。
+              </p>
+
+              <div className="space-y-2">
+                {([
+                  {
+                    value: 'guolao',
+                    desc: '『果老星宗』十二宮年分歌による七政四余の方式。命宮から相貌宮・福徳宮・官禄宮…と逆行し、官禄宮15年・奴僕宮4年半のように宮ごとに年数が異なります。命宮の年数は童限(出生から直前の中氣までの日数)で決まります。男女共通。',
+                  },
+                  {
+                    value: 'yinyang_decade',
+                    desc: '命宮を第1大限とし一宮十年、陽男陰女は順行・陰男陽女は逆行。紫微斗数・子平の大運に近い運用で、本アプリが当初採用していた方式です。',
+                  },
+                ] as { value: FortuneMethod; desc: string }[]).map((item) => (
+                  <label
+                    key={item.value}
+                    className={`flex items-start gap-3 p-3 border cursor-pointer transition-colors ${
+                      currentConfig.fortuneMethod === item.value
+                        ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]'
+                        : 'border-[#D4AF37]/10 hover:bg-[#232326]/50 text-[#F5F2ED]/80'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="fortuneMethod"
+                      value={item.value}
+                      checked={currentConfig.fortuneMethod === item.value}
+                      onChange={() => handleCustomChange('fortuneMethod', item.value)}
+                      className="mt-1 accent-[#D4AF37]"
+                    />
+                    <div>
+                      <div className="text-xs font-bold">{FORTUNE_METHOD_LABELS[item.value]}</div>
                       <div className="text-[11px] text-[#F5F2ED]/50 mt-0.5">{item.desc}</div>
                     </div>
                   </label>

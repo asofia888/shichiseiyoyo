@@ -29,6 +29,21 @@ describe('四余の鑑定ルール', () => {
     expect(ids).toContain('r_yuebei_placement');
   });
 
+  it('紫氣は起点が出典未確認のため、どのプリセットでも既定では算入しない', () => {
+    for (const [key, preset] of Object.entries(SCHOOL_PRESETS)) {
+      expect(preset.ziqiOption, key).toBe('none');
+    }
+  });
+
+  it('紫氣を算入したときは、位置が試験的な計算であることを判定文に明記する', async () => {
+    const hits = await hitsFor({ ...SCHOOL_PRESETS.traditional, ziqiOption: 'cycle_28' });
+    const ziqi = hits.find(h => h.ruleId === 'r_ziqi_placement')!;
+    expect(ziqi.interpretation).toContain('試験的な計算');
+    // 他の四余には付けない
+    const rahu = hits.find(h => h.ruleId === 'r_rahu_placement')!;
+    expect(rahu.interpretation).not.toContain('試験的');
+  });
+
   it('紫氣は流派設定で有効なときだけ判定される', async () => {
     const off = await hitsFor(SCHOOL_PRESETS.traditional); // ziqiOption: 'none'
     expect(off.map(h => h.ruleId)).not.toContain('r_ziqi_placement');

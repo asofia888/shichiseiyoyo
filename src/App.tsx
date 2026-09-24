@@ -4,21 +4,24 @@
  */
 
 import { useState, useMemo } from 'react';
-import { BookOpen, Map, Settings, History, HelpCircle, Menu, X } from 'lucide-react';
+import { Map, Settings, History, HelpCircle, Menu, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import systemDesignMd from '../docs/system-design.md?raw';
+// 利用者向けの解説。開発用の設計書 (docs/system-design.md) は画面には出さない
+import guideMd from './content/guide.md?raw';
 import { BirthInputForm } from './features/birth-input/BirthInputForm';
 import { ChartContainer } from './features/chart/ChartContainer';
 import { HistoryView } from './features/history/HistoryView';
 import { SchoolSettingsView } from './features/settings/SchoolSettingsView';
 import { BirthInput } from './domain/astronomy/types';
-import { SchoolConfig } from './domain/qizhengsiyu/schoolConfig';
-import { getStoredSchoolConfig, normalizeSchoolConfig, isSameCalculation } from './domain/storage/schoolConfigStore';
+import { SchoolConfig, FORTUNE_METHOD_LABELS } from './domain/qizhengsiyu/schoolConfig';
+import { getStoredSchoolConfig, normalizeRecordSchoolConfig, isSameCalculation } from './domain/storage/schoolConfigStore';
 import { AppraisalRecord } from './domain/storage/appraisalStore';
 import { Disclaimer } from './features/common/Disclaimer';
+import { isBirthTimeUnknown } from './domain/qizhengsiyu/birth-time';
+import { formatUtcOffset } from './domain/astronomy/timezone';
 
-type ViewState = 'docs' | 'input' | 'chart' | 'history' | 'settings';
+type ViewState = 'guide' | 'input' | 'chart' | 'history' | 'settings';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>('input');
@@ -55,7 +58,7 @@ export default function App() {
   // 保存済みレコードにも欠損項目の補完をかける (保存後に設定項目が増えた場合に備える)。
   // useMemo で包まないと毎レンダー別オブジェクトになり、命盤が無駄に再計算される。
   const activeSchoolConfig = useMemo(
-    () => (restoredRecord ? normalizeSchoolConfig(restoredRecord.schoolConfig) : schoolConfig),
+    () => (restoredRecord ? normalizeRecordSchoolConfig(restoredRecord.schoolConfig) : schoolConfig),
     [restoredRecord, schoolConfig]
   );
   // 告知は id ではなく計算に効く項目で比べる (カスタム設定同士は id がどちらも 'custom')
@@ -89,13 +92,6 @@ export default function App() {
           <p className="text-[10px] text-[#F5F2ED]/50 mt-2 tracking-widest uppercase">天文学と伝統の融合</p>
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          <button
-            onClick={() => goTo('docs')}
-            className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-sm font-medium tracking-wider ${currentView === 'docs' ? 'bg-[#232326] border-l-2 border-[#D4AF37] text-[#D4AF37]' : 'hover:bg-[#232326] text-[#F5F2ED]/50 hover:text-[#F5F2ED]/80'}`}
-          >
-            <BookOpen size={16} />
-            <span>設計ドキュメント</span>
-          </button>
           <button 
             onClick={() => goTo('input')}
             className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-sm font-medium tracking-wider ${currentView === 'input' || currentView === 'chart' ? 'bg-[#232326] border-l-2 border-[#D4AF37] text-[#D4AF37]' : 'hover:bg-[#232326] text-[#F5F2ED]/50 hover:text-[#F5F2ED]/80'}`}
@@ -120,8 +116,8 @@ export default function App() {
         </nav>
         <div className="p-4 border-t border-[#D4AF37]/20 space-y-3">
           <button
-            onClick={() => goTo('docs')}
-            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#232326] text-[#F5F2ED]/50 hover:text-[#F5F2ED]/80 transition-colors text-sm font-medium tracking-wider"
+            onClick={() => goTo('guide')}
+            className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-sm font-medium tracking-wider ${currentView === 'guide' ? 'bg-[#232326] border-l-2 border-[#D4AF37] text-[#D4AF37]' : 'hover:bg-[#232326] text-[#F5F2ED]/50 hover:text-[#F5F2ED]/80'}`}
           >
             <HelpCircle size={16} />
             <span>基礎知識</span>
@@ -132,10 +128,10 @@ export default function App() {
 
       {/* Main Content */}
       <div className="flex-1 overflow-hidden flex flex-col print:overflow-visible print:block">
-        {currentView === 'docs' && (
+        {currentView === 'guide' && (
           <main className="flex-1 overflow-auto bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#1a1c2c] to-[#121214] relative">
             <header className="bg-[#1A1A1B]/90 backdrop-blur-sm border-b border-[#D4AF37]/20 pl-16 pr-4 md:px-8 py-5 sticky top-0 z-10 flex items-center justify-between">
-              <h2 className="text-lg font-serif text-[#D4AF37] tracking-wider">フェーズ1: 要件整理と設計</h2>
+              <h2 className="text-lg font-serif text-[#D4AF37] tracking-wider">基礎知識</h2>
             </header>
             <div className="p-4 md:p-8 max-w-4xl mx-auto">
               <div className="relative bg-[#232326]/80 backdrop-blur-sm border border-[#D4AF37]/10 p-5 md:p-10 shadow-2xl shadow-black/50 prose prose-invert prose-slate max-w-none 
@@ -152,7 +148,7 @@ export default function App() {
                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b border-l border-[#D4AF37] opacity-50"></div>
                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b border-r border-[#D4AF37] opacity-50"></div>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {systemDesignMd}
+                  {guideMd}
                 </ReactMarkdown>
               </div>
             </div>
@@ -173,7 +169,7 @@ export default function App() {
         {currentView === 'input' && (
            <main className="flex-1 overflow-auto bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#1a1c2c] to-[#121214] relative">
             <header className="bg-[#1A1A1B]/90 backdrop-blur-sm border-b border-[#D4AF37]/20 pl-16 pr-4 md:px-8 py-5 sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-serif text-[#D4AF37] tracking-wider">フェーズ2: 命盤作成</h2>
+              <h2 className="text-lg font-serif text-[#D4AF37] tracking-wider">命盤作成</h2>
               <div className="text-xs text-[#D4AF37]/80 bg-[#232326] px-3 py-1 border border-[#D4AF37]/20 rounded flex items-center gap-2">
                 <span>流派: {schoolConfig.name}</span>
                 <button
@@ -207,7 +203,10 @@ export default function App() {
               </div>
               <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs tracking-tighter text-[#F5F2ED]/70">
                 <div className="px-3 py-1 bg-[#232326] border border-[#D4AF37]/10 rounded">
-                  {birthInput.birthDate} {birthInput.birthTime} (UTC{birthInput.timezoneOffset >= 0 ? '+' : ''}{birthInput.timezoneOffset})
+                  {birthInput.birthDate} {isBirthTimeUnknown(birthInput) ? '時刻不明' : birthInput.birthTime}{' '}
+                  ({birthInput.timeZone ? `${birthInput.timeZone} ` : ''}
+                  {formatUtcOffset(birthInput.timezoneOffset + (birthInput.isDaylightSaving ? 1 : 0))}
+                  {birthInput.isDaylightSaving ? '・夏時刻' : ''})
                 </div>
                 <div className="px-3 py-1 bg-[#232326] border border-[#D4AF37]/10 rounded">
                   {birthInput.latitude}°, {birthInput.longitude}°
@@ -224,6 +223,9 @@ export default function App() {
                   {restoredConfigIsAssumed
                     ? `この履歴には流派設定が記録されていないため、既定の「${activeSchoolConfig.name}」で表示しています。`
                     : `保存時の流派設定「${activeSchoolConfig.name}」で表示しています。`}
+                  {/* 流派名が同じでも大限の方式だけが違うことがある (方式を選べるようにする前の履歴) */}
+                  {activeSchoolConfig.fortuneMethod !== schoolConfig.fortuneMethod &&
+                    `大限は保存時の方式「${FORTUNE_METHOD_LABELS[activeSchoolConfig.fortuneMethod]}」で表示しています。`}
                   お使いの設定「{schoolConfig.name}」は変更していません。
                 </div>
               )}

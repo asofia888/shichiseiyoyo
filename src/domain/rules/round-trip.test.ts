@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { RuleEngine } from './engine';
 import { AstronomyEngineProvider } from '../astronomy/astronomy-engine-provider';
-import { SCHOOL_PRESETS } from '../qizhengsiyu/schoolConfig';
+import { SCHOOL_PRESETS, FortuneMethod } from '../qizhengsiyu/schoolConfig';
 import { BirthInput } from '../astronomy/types';
 import { parseAppraisalRequest } from '../../../api/_lib/appraisal-core';
 
@@ -17,11 +17,16 @@ const base: Omit<BirthInput, 'birthDate' | 'birthTime' | 'gender'> = {
   name: 't', timeAccuracy: 'exact', latitude: 35.6581, longitude: 139.7414, timezoneOffset: 9,
 };
 
-async function roundTrip(input: BirthInput, ziqi: boolean, targetYear?: number) {
+async function roundTrip(
+  input: BirthInput,
+  ziqi: boolean,
+  targetYear?: number,
+  fortuneMethod: FortuneMethod = SCHOOL_PRESETS.traditional.fortuneMethod
+) {
   const config = { ...SCHOOL_PRESETS.traditional, ziqiOption: (ziqi ? 'cycle_28' : 'none') as 'cycle_28' | 'none' };
   const positions = await provider.calculateBodies(input, config);
   const angles = await provider.calculateAngles(input, config);
-  const hits = engine.evaluateAll(positions, angles, { input, targetYear });
+  const hits = engine.evaluateAll(positions, angles, { input, targetYear, fortuneMethod });
   const body = {
     hits: hits.map(h => ({ ruleId: h.ruleId, ...(h.params ? { params: h.params } : {}) })),
   };
@@ -36,15 +41,34 @@ describe('RuleHit → AI鑑定APIの往復', () => {
     expect(parsed!).toHaveLength(hits.length);
   });
 
-  it('クライアントの表示とサーバーの再構成が完全に一致する', async () => {
+  it('クライアントの表示とサーバーの再構成が完全に一致する (大限の方式ごと)', async () => {
     const input: BirthInput = { ...base, birthDate: '1988-08-15', birthTime: '14:30', gender: 'male' };
-    const { hits, parsed } = await roundTrip(input, true, 2026);
-    hits.forEach((hit, i) => {
-      expect(parsed![i].title, hit.ruleId).toBe(hit.title);
-      expect(parsed![i].interpretation, hit.ruleId).toBe(hit.interpretation);
-      expect(parsed![i].evidence, hit.ruleId).toEqual(hit.evidence);
-      expect(parsed![i].sourceId, hit.ruleId).toBe(hit.sourceId);
+    for (const method of ['guolao', 'yinyang_decade'] as const) {
+      const { hits, parsed } = await roundTrip(input, true, 2026, method);
+      expect(hits.map(h => h.ruleId), method).toContain('r_da_xian');
+      hits.forEach((hit, i) => {
+        expect(parsed![i].title, `${method} ${hit.ruleId}`).toBe(hit.title);
+        expect(parsed![i].interpretation, `${method} ${hit.ruleId}`).toBe(hit.interpretation);
+        expect(parsed![i].evidence, `${method} ${hit.ruleId}`).toEqual(hit.evidence);
+        expect(parsed![i].sourceId, `${method} ${hit.ruleId}`).toBe(hit.sourceId);
+      });
+    }
+  });
+
+  it('大限の方式を送らない旧クライアントは一宮十年として再構成する', () => {
+    const parsed = parseAppraisalRequest({
+      hits: [{
+        ruleId: 'r_da_xian',
+        params: { houseName: '宝瓶', personHouseName: '田宅宮', direction: '順行', ageRange: '30〜40歳', index: '4' },
+      }],
     });
+    expect(parsed![0].evidence[0]).toBe('大限は命宮より順行・一宮十年');
+    expect(parseAppraisalRequest({
+      hits: [{
+        ruleId: 'r_da_xian',
+        params: { method: 'unknown', houseName: '宝瓶', personHouseName: '田宅宮', direction: '順行', ageRange: '30〜40歳', index: '4' },
+      }],
+    })).toBeNull();
   });
 
   it('パラメータのキーは20文字以内、値は80文字以内に収まる', async () => {

@@ -19,6 +19,18 @@ export type RahuKetuAssignment = 'rahu_ascending' | 'rahu_descending';
 // 'apparent_solar' は太陽の時角から算出するため、均時差と経度差を自動的に含む。
 export type ShichenBasis = 'standard' | 'apparent_solar';
 
+// 大限の方式。
+// - 'guolao': 『果老星宗』十二宮年分歌。命宮から相貌宮→福徳宮→官禄宮…と逆行し、宮ごとに年数が異なる。
+//   命宮の年数は童限の算法で決まる。男女で方向は変わらない。
+// - 'yinyang_decade': 命宮を第1大限とし一宮十年、陽男陰女＝順行・陰男陽女＝逆行。
+//   紫微斗数・子平の大運に近い運用で、本アプリが当初採用していた方式 (それ以前の履歴の再現に使う)。
+export type FortuneMethod = 'guolao' | 'yinyang_decade';
+
+export const FORTUNE_METHOD_LABELS: Record<FortuneMethod, string> = {
+  guolao: '果老星宗式（命宮から逆行・宮ごとに年数が異なる）',
+  yinyang_decade: '陽男陰女・一宮十年',
+};
+
 export interface SchoolConfig {
   id: string;
   name: string;
@@ -31,6 +43,7 @@ export interface SchoolConfig {
   mingGongMethod: MingGongMethod;
   rahuKetuAssignment: RahuKetuAssignment;
   shichenBasis: ShichenBasis;
+  fortuneMethod: FortuneMethod;
 }
 
 export const SCHOOL_PRESETS: Record<string, SchoolConfig> = {
@@ -45,6 +58,7 @@ export const SCHOOL_PRESETS: Record<string, SchoolConfig> = {
     mingGongMethod: 'sun_mao_traditional',
     rahuKetuAssignment: 'rahu_descending',
     shichenBasis: 'apparent_solar',
+    fortuneMethod: 'guolao',
   },
   modern: {
     id: 'modern',
@@ -57,18 +71,22 @@ export const SCHOOL_PRESETS: Record<string, SchoolConfig> = {
     mingGongMethod: 'ascendant',
     rahuKetuAssignment: 'rahu_ascending',
     shichenBasis: 'standard',
+    fortuneMethod: 'guolao',
   },
   sidereal_mixed: {
     id: 'sidereal_mixed',
     name: '印度・西域融合流派',
-    description: 'サイデリアル黄道と実測ASCアセンダント法を組み合わせ、四余の真位置(True Node/Apogee)を採用する精密恒星流派。羅計は印度式(羅睺=昇交点)。',
+    description: 'サイデリアル黄道と実測ASCアセンダント法を組み合わせ、四余の真位置(True Node/Apogee)を採用する精密恒星流派。羅計は印度式(羅睺=昇交点)。紫氣は計算式の出典確認まで無効です(設定で有効化可能)。',
     zodiacSystem: 'sidereal_lahiri',
     nodeCalc: 'true',
     apogeeCalc: 'true',
-    ziqiOption: 'cycle_28',
+    // 紫氣の起点は出典未確認 (astronomy-engine-provider.ts の getZiqiLongitude)。
+    // 設計書§3の方針どおり、どのプリセットでも既定では算入しない
+    ziqiOption: 'none',
     mingGongMethod: 'ascendant',
     rahuKetuAssignment: 'rahu_ascending',
     shichenBasis: 'standard',
+    fortuneMethod: 'guolao',
   },
 };
 

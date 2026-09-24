@@ -15,10 +15,15 @@ interface Props {
   positions: CelestialPosition[];
   mansionOffset: number;
   ascendant: number;
+  /** 出生時刻が不明なら人事宮 (命宮から数える) は出さない */
+  timeUnknown?: boolean;
+  /** 出生日のうちに落宮・落宿が変わる星曜 */
+  uncertainBodyIds?: string[];
 }
 
-export function ChartDataTable({ positions, mansionOffset, ascendant }: Props) {
+export function ChartDataTable({ positions, mansionOffset, ascendant, timeUnknown = false, uncertainBodyIds = [] }: Props) {
   return (
+    <div className="space-y-2">
     // 印刷では横スクロールできないので、overflow を解除して文字を詰める
     <div className="w-full bg-[#1A1A1B] border border-[#D4AF37]/20 rounded overflow-x-auto print:overflow-visible print:bg-white print:border-gray-300">
       <table className="w-full text-left text-sm text-[#F5F2ED]/80 print:text-black print:text-[9px]">
@@ -47,11 +52,16 @@ export function ChartDataTable({ positions, mansionOffset, ascendant }: Props) {
 
             return (
               <tr key={pos.id} className="hover:bg-[#D4AF37]/5 transition-colors">
-                <td className="px-3 py-2.5 print:px-1 print:py-1 font-medium text-[#F5F2ED] print:text-black">{pos.name}</td>
+                <td className="px-3 py-2.5 print:px-1 print:py-1 font-medium text-[#F5F2ED] print:text-black whitespace-nowrap">
+                  {pos.name}
+                  {uncertainBodyIds.includes(pos.id) && <span className="text-[#E34234] print:text-black">※</span>}
+                </td>
                 <td className="px-3 py-2.5 print:px-1 print:py-1 font-mono text-xs">{pos.longitude.toFixed(2)}°</td>
                 <td className="px-3 py-2.5 print:px-1 print:py-1 whitespace-nowrap">{house.name} ({house.branch})</td>
                 <td className="px-3 py-2.5 print:px-1 print:py-1 font-mono text-xs">{houseDegree.toFixed(2)}°</td>
-                <td className="px-3 py-2.5 print:px-1 print:py-1 whitespace-nowrap text-[#D4AF37] print:text-black">{personHouse.name}</td>
+                <td className="px-3 py-2.5 print:px-1 print:py-1 whitespace-nowrap text-[#D4AF37] print:text-black">
+                  {timeUnknown ? '—' : personHouse.name}
+                </td>
                 <td className={`px-3 py-2.5 print:px-1 print:py-1 whitespace-nowrap print:text-black ${dignity ? DIGNITY_COLORS[dignity] : 'text-[#F5F2ED]/30'}`}>
                   {dignity ?? '—'}
                 </td>
@@ -71,6 +81,13 @@ export function ChartDataTable({ positions, mansionOffset, ascendant }: Props) {
           })}
         </tbody>
       </table>
+    </div>
+    {(timeUnknown || uncertainBodyIds.length > 0) && (
+      <p className="text-[11px] text-[#F5F2ED]/50 print:text-gray-600 leading-relaxed">
+        出生時刻が不明のため、位置は正午の値です。人事宮は命宮が定まらないため表示しません。
+        {uncertainBodyIds.length > 0 && ' ※の星曜は出生日のうちに十二次か宿が変わるため、ここに示す落宮・落宿は確定しません。'}
+      </p>
+    )}
     </div>
   );
 }

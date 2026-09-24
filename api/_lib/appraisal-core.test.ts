@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { parseAppraisalRequest } from './appraisal-core';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { parseAppraisalRequest, generateAppraisal, describeGeminiError } from './appraisal-core';
 import { buildCanonicalRuleHit, HOUSE_BRANCHES } from './rule-texts';
+
+// Gemini を実際には呼ばず、応答と失敗を差し替えられるようにする
+const { generateContent } = vi.hoisted(() => ({ generateContent: vi.fn() }));
+vi.mock('@google/genai', () => ({
+  GoogleGenAI: class {
+    models = { generateContent };
+  },
+}));
 
 describe('AI鑑定APIの入力検証 (ルールID方式)', () => {
   it('正しいリクエストは正規テーブルからRuleHitを再構成する', () => {
@@ -84,5 +92,55 @@ describe('AI鑑定APIの入力検証 (ルールID方式)', () => {
   it('r_general_asc は宮名がないと成立しない', () => {
     expect(buildCanonicalRuleHit('r_general_asc')).toBeNull();
     expect(buildCanonicalRuleHit('r_general_asc', { houseName: '双女' })!.evidence).toEqual(['命宮在巳']);
+  });
+});
+
+describe('AI鑑定の生成失敗は 2xx 以外で返す', () => {
+  // クライアントは 2xx の応答を鑑定文として扱うため、失敗を 200 で返すと
+  // エラー文が鑑定文として表示・保存され、再試行もできなくなる
+  const validBody = { hits: [{ ruleId: 'r_general_asc', params: { houseName: '天蝎' } }] };
+  const originalKey = process.env.GEMINI_API_KEY;
+
+  beforeEach(() => {
+    process.env.GEMINI_API_KEY = 'test-key';
+    generateContent.mockReset();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    process.env.GEMINI_API_KEY = originalKey;
+    vi.restoreAllMocks();
+  });
+
+  it('成功時は 200 で本文を返す', async () => {
+    generateContent.mockResolvedValue({ text: '## 命盤全体の要約' });
+    const result = await generateAppraisal(validBody);
+    expect(result).toEqual({ status: 200, body: { text: '## 命盤全体の要約' } });
+  });
+
+  it('混雑(503)・利用制限(429)・その他の失敗を種別ごとのステータスで返す', async () => {
+    generateContent.mockRejectedValue({ status: 503 });
+    expect((await generateAppraisal(validBody)).status).toBe(503);
+
+    generateContent.mockRejectedValue(new Error('RESOURCE_EXHAUSTED: quota exceeded'));
+    expect((await generateAppraisal(validBody)).status).toBe(429);
+
+    generateContent.mockRejectedValue(new Error('boom'));
+    const result = await generateAppraisal(validBody);
+    expect(result.status).toBe(502);
+    expect(result.body.text).toBeUndefined();
+    expect(result.body.error).toBeTruthy();
+  });
+
+  it('本文が空の応答は成功扱いにしない', async () => {
+    generateContent.mockResolvedValue({ text: '' });
+    const result = await generateAppraisal(validBody);
+    expect(result.status).toBe(502);
+    expect(result.body.text).toBeUndefined();
+  });
+
+  it('循環参照を含むエラーでも例外を投げずに振り分ける', () => {
+    const circular: Record<string, unknown> = { status: 503 };
+    circular.self = circular;
+    expect(describeGeminiError(circular).status).toBe(503);
   });
 });

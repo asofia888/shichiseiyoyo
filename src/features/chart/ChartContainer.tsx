@@ -15,6 +15,10 @@ import { saveAppraisal, updateAppraisalText, AppraisalRecord } from '../../domai
 import { SchoolConfig } from '../../domain/qizhengsiyu/schoolConfig';
 import { getHouseAtLongitude, getMansionPosition, getMingZhu, getMingDuZhu } from '../../domain/qizhengsiyu/constants';
 import { Disclaimer } from '../common/Disclaimer';
+import { RULE_SET_VERSION } from '../../../api/_lib/rule-texts';
+import {
+  isBirthTimeUnknown, findDayUncertainBodies, describeDayUncertainBody, DayUncertainBody,
+} from '../../domain/qizhengsiyu/birth-time';
 
 interface Props {
   input: BirthInput;
@@ -29,12 +33,19 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
   const [angles, setAngles] = useState<ChartAngles | null>(null);
   const [providerInfo, setProviderInfo] = useState<EphemerisProviderInfo | null>(null);
   const [ruleHits, setRuleHits] = useState<RuleHit[]>([]);
+  // 時刻不明の命盤で、出生日のうちに落宮・落宿が変わる星曜 (位置が確定しない)
+  const [uncertainBodies, setUncertainBodies] = useState<DayUncertainBody[]>([]);
+  // 出生時刻が不明なら命宮が定まらないので、命宮から導く項目は出さない
+  const timeUnknown = isBirthTimeUnknown(input);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'table' | 'appraisal' | 'aspects' | 'fortune'>('appraisal');
   // 大限・流年を見る年。既定は今年。
   const [targetYear, setTargetYear] = useState<number>(new Date().getFullYear());
   
   const [appraisalText, setAppraisalText] = useState<string | null>(null);
+  // 生成失敗の文面は鑑定文と分けて持つ。同じ state に入れると生成ボタンが消えて再試行できず、
+  // 「履歴に保存」でエラー文が鑑定文として保存されてしまう。
+  const [appraisalError, setAppraisalError] = useState<string | null>(null);
   const [generatingAppraisal, setGeneratingAppraisal] = useState(false);
   const [recordId, setRecordId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -55,13 +66,18 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
 
         const pos = await provider.calculateBodies(input, schoolConfig);
         const ang = await provider.calculateAngles(input, schoolConfig);
+        const uncertain = isBirthTimeUnknown(input)
+          ? await findDayUncertainBodies(provider, input, schoolConfig)
+          : [];
 
+        setUncertainBodies(uncertain);
         setPositions(pos);
         setAngles(ang);
 
         // 履歴から開いた場合は保存済みの鑑定文をそのまま復元する (新規なら空にする)。
         // 鑑定年も復元しないと、本文の流年と画面の流年がずれる。
         setAppraisalText(restoredRecord?.appraisalText ?? null);
+        setAppraisalError(null);
         setRecordId(restoredRecord?.id ?? null);
         if (restoredRecord?.targetYear) setTargetYear(restoredRecord.targetYear);
         setSaveStatus(null);
@@ -80,8 +96,13 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
   useEffect(() => {
     if (!angles) return;
     const engine = new RuleEngine();
-    setRuleHits(engine.evaluateAll(positions, angles, { input, targetYear }));
-  }, [positions, angles, input, targetYear]);
+    setRuleHits(engine.evaluateAll(positions, angles, {
+      input,
+      targetYear,
+      fortuneMethod: schoolConfig.fortuneMethod,
+      uncertainBodyIds: uncertainBodies.map(b => b.id),
+    }));
+  }, [positions, angles, input, targetYear, schoolConfig.fortuneMethod, uncertainBodies]);
 
 
   const handleSaveToHistory = () => {
@@ -101,6 +122,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
 
   const handleGenerateAppraisal = async () => {
     setGeneratingAppraisal(true);
+    setAppraisalError(null);
     try {
       // APIには文章ではなくルールIDと限定パラメータのみを送る (サーバー側で正規テーブルから再構成)
       const response = await fetch('/api/appraisal', {
@@ -120,13 +142,14 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         try {
           data = await response.json();
         } catch (parseError) {
-          setAppraisalText('サーバーからの応答が不正です。しばらくしてから再度お試しください。');
+          setAppraisalError('サーバーからの応答が不正です。しばらくしてから再度お試しください。');
           setGeneratingAppraisal(false);
           return;
         }
 
-        if (data.error) {
-          setAppraisalText(data.error);
+        // 本文が文字列でない応答は成功扱いにしない (空の鑑定文を保存しないため)
+        if (data.error || typeof data.text !== 'string' || !data.text) {
+          setAppraisalError(data.error || '鑑定文を生成できませんでした。時間をおいてから再度お試しください。');
         } else {
           setAppraisalText(data.text);
           if (recordId) {
@@ -146,11 +169,11 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         }
       } else {
         const errData = await response.json().catch(() => null);
-        setAppraisalText(errData?.error || '鑑定文の生成に失敗しました。(APIエラー)');
+        setAppraisalError(errData?.error || '鑑定文の生成に失敗しました。(APIエラー)');
       }
     } catch (err) {
       console.error(err);
-      setAppraisalText('鑑定文の生成中にエラーが発生しました。ネットワーク接続を確認してください。');
+      setAppraisalError('鑑定文の生成中にエラーが発生しました。ネットワーク接続を確認してください。');
     } finally {
       setGeneratingAppraisal(false);
     }
@@ -174,22 +197,61 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
             <h1 className="text-2xl font-serif font-bold mb-2">七政四余 命盤鑑定書</h1>
             <p className="text-lg">{input.name} 様</p>
             <p className="text-sm text-gray-600 mt-2">
-              {input.birthDate} {input.birthTime} / 緯度: {input.latitude.toFixed(2)} 経度: {input.longitude.toFixed(2)}
+              {input.birthDate} {timeUnknown ? '時刻不明' : input.birthTime} / 緯度: {input.latitude.toFixed(2)} 経度: {input.longitude.toFixed(2)}
             </p>
             {/* 印刷物だけを見ても、どの流派設定で立てた命盤かが分かるようにする */}
             <p className="text-sm text-gray-600">流派: {schoolConfig.name}</p>
           </div>
+
+          {/* 出生時刻の精度によって、どこまでが確かな結果かを命盤の上で断っておく (印刷にも載せる) */}
+          {timeUnknown && (
+            <div className="w-full mb-4 px-4 py-3 text-[11px] leading-relaxed bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#F5F2ED]/80 print:bg-white print:text-black print:border-gray-400">
+              出生時刻が不明のため、星曜の位置は正午で計算しています。
+              命宮・命度・命主・命度主・人事十二宮・大限・小限は出生時刻で決まるため表示せず、AI鑑定にも渡しません。
+              {uncertainBodies.map(b => (
+                <div key={b.id} className="mt-1 text-[#E34234] print:text-black">
+                  {describeDayUncertainBody(b)}。落宮・落宿が確定しないため、判定から外しています。
+                </div>
+              ))}
+            </div>
+          )}
+          {input.timeAccuracy === 'approximate' && (
+            <div className="w-full mb-4 px-4 py-2 text-[11px] leading-relaxed bg-[#232326] border border-[#D4AF37]/20 text-[#F5F2ED]/70 print:bg-white print:text-black print:border-gray-400">
+              出生時刻がおおよそのため、時辰の境目に近いと命宮が変わります。命宮・命度・大限は参考としてご覧ください。
+            </div>
+          )}
           
-          <CelestialChart positions={positions} angles={angles} />
+          <CelestialChart
+            positions={positions}
+            angles={angles}
+            timeUnknown={timeUnknown}
+            uncertainBodyIds={uncertainBodies.map(b => b.id)}
+          />
           
           {/* 命盤は星曜を一文字で書くため、正式名称の対応を添える */}
           <div className="mt-6 w-full px-6 print:px-20 text-[10px] text-[#F5F2ED]/50 print:text-gray-600 text-center leading-relaxed">
             日=太陽 / 月=太陰 / 水=水星 / 金=金星 / 火=火星 / 木=木星 / 土=土星
             <br />
             羅=羅睺 / 計=計都 / 孛=月孛 / 氣=紫氣（逆=逆行）
+            {positions.some(p => p.id === 'Ziqi') && (
+              <>
+                <br />
+                <span className="text-[#E34234]/80 print:text-gray-600">
+                  ※紫氣の位置は、起点の出典を確認できていない試験的な計算によります
+                </span>
+              </>
+            )}
           </div>
 
           {/* Legend / Mini Metrics */}
+          {timeUnknown ? (
+            <div className="mt-4 w-full px-6 print:px-20">
+              <div className="bg-[#232326] p-3 border-l-2 border-[#D4AF37]/40 print:bg-gray-100 print:text-black print:border-gray-800">
+                <div className="text-[9px] text-[#D4AF37]/70 uppercase tracking-tighter print:text-gray-600">命宮 / 命度 / MC / 命主 / 命度主</div>
+                <div className="text-xs text-[#F5F2ED]/60 print:text-gray-600 mt-1">出生時刻が不明のため算出しません</div>
+              </div>
+            </div>
+          ) : (
           <div className="mt-4 grid grid-cols-2 gap-4 w-full px-6 print:px-20">
             <div className="bg-[#232326] p-3 border-l-2 border-[#D4AF37] print:bg-gray-100 print:text-black print:border-gray-800">
               <div className="text-[9px] text-[#D4AF37]/70 uppercase tracking-tighter print:text-gray-600">命宮 / 命度</div>
@@ -202,10 +264,10 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
                 {getMansionPosition(angles.ascendant, angles.mansionOffset).label}
               </div>
               {schoolConfig.mingGongMethod === 'sun_mao_traditional' && (
-                // 伝統安命法では命度が太陽の宮内度数を引き継ぐ。実測ASCのような
+                // 伝統安命法では命度が太陽の宮内度数を引き継ぐ (同絡)。実測ASCのような
                 // 独立した観測値ではないので、そのことを画面に明示する。
                 <div className="text-[9px] text-[#F5F2ED]/40 print:text-gray-500 mt-1 leading-snug">
-                  ※太陽安命法のため、命度は太陽の宮内度数を引き継ぎます（同一時辰内では宮が変わりません）
+                  ※太陽安命法では、太陽の宮内度数をそのまま命宮に写して命度とします（同絡）。同じ日の同じ時辰に生まれれば、命宮も命度も同じになります
                 </div>
               )}
             </div>
@@ -229,6 +291,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
               </div>
             </div>
           </div>
+          )}
         </section>
 
         {/* Right: Tabs/Content */}
@@ -278,12 +341,18 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
           <div className="flex-1 p-4 md:p-8 lg:overflow-y-auto scrollbar-hide print:overflow-visible print:p-8">
             <div className={activeTab === 'table' ? '' : 'hidden print:block'}>
               <h2 className="hidden print:block text-xl font-serif mb-4 text-black">星曜位置詳細</h2>
-              <ChartDataTable positions={positions} mansionOffset={angles.mansionOffset} ascendant={angles.ascendant} />
+              <ChartDataTable
+                positions={positions}
+                mansionOffset={angles.mansionOffset}
+                ascendant={angles.ascendant}
+                timeUnknown={timeUnknown}
+                uncertainBodyIds={uncertainBodies.map(b => b.id)}
+              />
             </div>
 
             <div className={activeTab === 'aspects' ? '' : 'hidden print:block print:mt-8'}>
               <h2 className="hidden print:block text-xl font-serif mb-4 text-black">三方四正の会合</h2>
-              <AspectGrid positions={positions} ascendant={angles.ascendant} />
+              <AspectGrid positions={positions} ascendant={angles.ascendant} timeUnknown={timeUnknown} />
             </div>
 
             <div className={activeTab === 'fortune' ? 'print:break-after-page' : 'hidden print:block print:mt-8 print:break-after-page'}>
@@ -292,6 +361,8 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
                 input={input}
                 ascendant={angles.ascendant}
                 targetYear={targetYear}
+                method={schoolConfig.fortuneMethod}
+                timeUnknown={timeUnknown}
                 onChangeYear={setTargetYear}
               />
             </div>
@@ -327,11 +398,16 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
                     <p className="text-sm leading-relaxed text-[#F5F2ED]/80 mb-4">
                       上記の確定した構造化データ(RuleHit)のみをAIに渡し、吉凶を断定しない自然な日本語で総合鑑定文を生成します。
                     </p>
+                    {appraisalError && (
+                      <p role="alert" className="text-sm text-red-400 bg-red-400/10 border border-red-400/30 px-4 py-3 mb-4">
+                        {appraisalError}
+                      </p>
+                    )}
                     <button
                       onClick={handleGenerateAppraisal}
                       className="px-6 py-2 bg-[#232326] border border-[#D4AF37]/30 text-[#D4AF37] text-sm hover:bg-[#D4AF37]/10 transition-colors"
                     >
-                      鑑定文を生成する
+                      {appraisalError ? 'もう一度生成する' : '鑑定文を生成する'}
                     </button>
                   </div>
                 )}
@@ -377,7 +453,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 bg-[#4A7C59] rounded-full"></span>
-            Rule Engine Active (v1.0.0)
+            判定ルール v{RULE_SET_VERSION}
           </span>
         </div>
       </footer>
