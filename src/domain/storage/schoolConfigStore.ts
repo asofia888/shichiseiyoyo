@@ -17,13 +17,18 @@ export function normalizeSchoolConfig(parsed: Partial<SchoolConfig> | null | und
 // 保存済みの鑑定文と画面の大限が食い違うので、当時の方式で補う。
 export function normalizeRecordSchoolConfig(parsed: Partial<SchoolConfig> | null | undefined): SchoolConfig {
   const config = normalizeSchoolConfig(parsed);
-  return parsed?.fortuneMethod ? config : { ...config, fortuneMethod: 'yinyang_decade' };
+  return {
+    ...config,
+    ...(parsed?.fortuneMethod ? {} : { fortuneMethod: 'yinyang_decade' as const }),
+    // 年齢の数え方を選べるようにする前の履歴は、満年齢で大限を引いて鑑定文を生成している
+    ...(parsed?.ageReckoning ? {} : { ageReckoning: 'full' as const }),
+  };
 }
 
 // 命盤の計算結果を左右する項目。表示用の id / name / description は含めない。
 const CALCULATION_KEYS: (keyof SchoolConfig)[] = [
   'zodiacSystem', 'ayanamshaValue', 'nodeCalc', 'apogeeCalc',
-  'ziqiOption', 'mingGongMethod', 'rahuKetuAssignment', 'shichenBasis', 'fortuneMethod',
+  'ziqiOption', 'mingGongMethod', 'rahuKetuAssignment', 'shichenBasis', 'fortuneMethod', 'ageReckoning',
 ];
 
 /** 2つの流派設定が同じ命盤を生むか。id が同じ 'custom' でも中身が違えば false になる。 */

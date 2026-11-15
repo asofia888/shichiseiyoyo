@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Settings, Check, RotateCcw, Shield, Sparkles, Compass, Sun, Moon, Hourglass } from 'lucide-react';
-import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, MingGongMethod, RahuKetuAssignment, ShichenBasis, FortuneMethod, FORTUNE_METHOD_LABELS } from '../../domain/qizhengsiyu/schoolConfig';
+import { SchoolConfig, SCHOOL_PRESETS, ZodiacSystem, MingGongMethod, RahuKetuAssignment, ShichenBasis, ZiqiOption, FortuneMethod, FORTUNE_METHOD_LABELS, AgeReckoning, AGE_RECKONING_LABELS } from '../../domain/qizhengsiyu/schoolConfig';
 import { saveStoredSchoolConfig, resetStoredSchoolConfig } from '../../domain/storage/schoolConfigStore';
 
 interface Props {
@@ -51,7 +51,8 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
       SCHOOL_PRESETS[key].mingGongMethod === currentConfig.mingGongMethod &&
       SCHOOL_PRESETS[key].rahuKetuAssignment === currentConfig.rahuKetuAssignment &&
       SCHOOL_PRESETS[key].shichenBasis === currentConfig.shichenBasis &&
-      SCHOOL_PRESETS[key].fortuneMethod === currentConfig.fortuneMethod
+      SCHOOL_PRESETS[key].fortuneMethod === currentConfig.fortuneMethod &&
+      SCHOOL_PRESETS[key].ageReckoning === currentConfig.ageReckoning
   ) || 'custom';
 
   return (
@@ -128,7 +129,7 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                   <div className="mt-6 pt-4 border-t border-[#D4AF37]/10 text-[10px] space-y-1 text-[#F5F2ED]/50">
                     <div>• 黄道: {preset.zodiacSystem.includes('sidereal') ? '恒星黄道 (Sidereal)' : '移動黄道 (Tropical)'}</div>
                     <div>• 安命: {preset.mingGongMethod === 'sun_mao_traditional' ? '太陽安命法 (伝統卯時)' : 'アセンダント法 (ASC)'}</div>
-                    <div>• 四余: 紫氣{preset.ziqiOption === 'cycle_28' ? 'あり' : 'なし'}</div>
+                    <div>• 四余: 紫氣{preset.ziqiOption === 'none' ? 'なし' : 'あり'}</div>
                     <div>• 大限: {preset.fortuneMethod === 'guolao' ? '果老星宗式' : '陽男陰女・一宮十年'}</div>
                   </div>
                 </div>
@@ -302,29 +303,27 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
 
                 <div>
                   <label className="text-xs font-bold text-[#D4AF37] block mb-1">紫氣 (Zi Qi)</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCustomChange('ziqiOption', 'cycle_28')}
-                      className={`py-2 px-3 text-xs border transition-colors ${
-                        currentConfig.ziqiOption === 'cycle_28' ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]' : 'border-[#D4AF37]/10 text-[#F5F2ED]/60'
-                      }`}
-                    >
-                      算入する (28年周期・試験的)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCustomChange('ziqiOption', 'none')}
-                      className={`py-2 px-3 text-xs border transition-colors ${
-                        currentConfig.ziqiOption === 'none' ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]' : 'border-[#D4AF37]/10 text-[#F5F2ED]/60'
-                      }`}
-                    >
-                      表示しない
-                    </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {([
+                      { value: 'datong', label: '算入する (大統暦法)' },
+                      { value: 'none', label: '表示しない' },
+                      { value: 'cycle_28', label: '旧試験式 (起点の出典なし)' },
+                    ] as { value: ZiqiOption; label: string }[]).map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => handleCustomChange('ziqiOption', item.value)}
+                        className={`py-2 px-3 text-xs border transition-colors ${
+                          currentConfig.ziqiOption === item.value ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]' : 'border-[#D4AF37]/10 text-[#F5F2ED]/60'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
-                  <p className="text-[11px] text-[#E34234]/80 mt-2 leading-relaxed">
-                    紫氣は28年で一周する説に基づいて計算しますが、起点の値は出典を確認できていない試験的なものです。
-                    算入すると、位置の確かでない紫氣が命盤と鑑定に加わります。
+                  <p className="text-[11px] text-[#F5F2ED]/50 mt-2 leading-relaxed">
+                    大統暦法は『明史』暦志「步四餘」の定数（周日10227.1792日・暦元の冬至で箕宿初度から8194.9623日）による位置です。
+                    旧試験式は起点の値に出典がなく、その方式で保存した履歴を同じ位置で開くためだけに残しています。
                   </p>
                 </div>
               </div>
@@ -469,6 +468,38 @@ export function SchoolSettingsView({ config, onUpdateConfig }: Props) {
                     </div>
                   </label>
                 ))}
+              </div>
+
+              <div className="pt-2">
+                <label className="text-xs font-bold text-[#D4AF37] block mb-2">年齢の数え方</label>
+                <div className="space-y-2">
+                  {([
+                    { value: 'nominal', desc: '生まれた年を一歳とし、年が改まるごとに一歳を加えます。古法の通例です。' },
+                    { value: 'full', desc: '誕生日で一歳を加える現代の数え方。本アプリが当初採用していた方式です。' },
+                  ] as { value: AgeReckoning; desc: string }[]).map((item) => (
+                    <label
+                      key={item.value}
+                      className={`flex items-start gap-3 p-3 border cursor-pointer transition-colors ${
+                        currentConfig.ageReckoning === item.value
+                          ? 'bg-[#232326] border-[#D4AF37] text-[#D4AF37]'
+                          : 'border-[#D4AF37]/10 hover:bg-[#232326]/50 text-[#F5F2ED]/80'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="ageReckoning"
+                        value={item.value}
+                        checked={currentConfig.ageReckoning === item.value}
+                        onChange={() => handleCustomChange('ageReckoning', item.value)}
+                        className="mt-1 accent-[#D4AF37]"
+                      />
+                      <div>
+                        <div className="text-xs font-bold">{AGE_RECKONING_LABELS[item.value]}</div>
+                        <div className="text-[11px] text-[#F5F2ED]/50 mt-0.5">{item.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

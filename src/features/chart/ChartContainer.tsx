@@ -15,7 +15,7 @@ import { saveAppraisal, updateAppraisalText, AppraisalRecord } from '../../domai
 import { SchoolConfig } from '../../domain/qizhengsiyu/schoolConfig';
 import { getHouseAtLongitude, getMansionPosition, getMingZhu, getMingDuZhu } from '../../domain/qizhengsiyu/constants';
 import { Disclaimer } from '../common/Disclaimer';
-import { RULE_SET_VERSION } from '../../../api/_lib/rule-texts';
+import { RULE_SET_VERSION, getEnNanStars } from '../../../api/_lib/rule-texts';
 import {
   isBirthTimeUnknown, findDayUncertainBodies, describeDayUncertainBody, DayUncertainBody,
 } from '../../domain/qizhengsiyu/birth-time';
@@ -38,6 +38,9 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
   // 出生時刻が不明なら命宮が定まらないので、命宮から導く項目は出さない
   const timeUnknown = isBirthTimeUnknown(input);
   const [loading, setLoading] = useState(true);
+  // 天文計算の失敗。握りつぶすと「計算中」の表示のまま止まり、利用者には原因も打つ手も分からない
+  const [calcError, setCalcError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [activeTab, setActiveTab] = useState<'table' | 'appraisal' | 'aspects' | 'fortune'>('appraisal');
   // 大限・流年を見る年。既定は今年。
   const [targetYear, setTargetYear] = useState<number>(new Date().getFullYear());
@@ -49,6 +52,9 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
   const [generatingAppraisal, setGeneratingAppraisal] = useState(false);
   const [recordId, setRecordId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  // 履歴への保存に失敗したか (保存領域の容量超過・保存が禁止されたブラウザ設定など)
+  const [saveFailed, setSaveFailed] = useState(false);
+  const SAVE_FAILED_MESSAGE = '履歴に保存できませんでした。ブラウザの保存領域がいっぱいか、保存が許可されていません。';
 
   const componentRef = useRef<HTMLDivElement>(null);
 
@@ -58,8 +64,11 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
   });
 
   useEffect(() => {
+    // 入力が切り替わった後に古い計算が終わっても、その結果で画面を上書きしない
+    let cancelled = false;
     async function calculate() {
       setLoading(true);
+      setCalcError(false);
       try {
         const provider = new AstronomyEngineProvider();
         setProviderInfo(provider.getProviderInfo());
@@ -69,6 +78,11 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         const uncertain = isBirthTimeUnknown(input)
           ? await findDayUncertainBodies(provider, input, schoolConfig)
           : [];
+        if (cancelled) return;
+        // 日付や座標が壊れていると例外にならず NaN が返ることがある。命盤として描けないので失敗として扱う
+        if (![ang.ascendant, ang.midheaven, ...pos.map(p => p.longitude)].every(Number.isFinite)) {
+          throw new Error('計算結果に数値でない値が含まれています');
+        }
 
         setUncertainBodies(uncertain);
         setPositions(pos);
@@ -81,15 +95,18 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         setRecordId(restoredRecord?.id ?? null);
         if (restoredRecord?.targetYear) setTargetYear(restoredRecord.targetYear);
         setSaveStatus(null);
+        setSaveFailed(false);
 
       } catch (err) {
         console.error("Calculation failed", err);
+        if (!cancelled) setCalcError(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     calculate();
-  }, [input, schoolConfig, restoredRecord]);
+    return () => { cancelled = true; };
+  }, [input, schoolConfig, restoredRecord, retryCount]);
 
   // 判定は天文計算とは別の効果にする。鑑定年を変えるたびに再計算すると
   // ローディング表示に戻ってしまい、年の入力欄からフォーカスが外れる。
@@ -100,9 +117,11 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
       input,
       targetYear,
       fortuneMethod: schoolConfig.fortuneMethod,
+      ageReckoning: schoolConfig.ageReckoning,
+      ziqiOption: schoolConfig.ziqiOption,
       uncertainBodyIds: uncertainBodies.map(b => b.id),
     }));
-  }, [positions, angles, input, targetYear, schoolConfig.fortuneMethod, uncertainBodies]);
+  }, [positions, angles, input, targetYear, schoolConfig.fortuneMethod, schoolConfig.ageReckoning, schoolConfig.ziqiOption, uncertainBodies]);
 
 
   const handleSaveToHistory = () => {
@@ -114,9 +133,20 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
         schoolConfig,
         targetYear,
       });
-      setRecordId(record.id);
+      reportSaveResult(record?.id ?? null);
+    }
+  };
+
+  // 保存の成否を画面に出す。失敗は消さずに残す (利用者が気づかないまま閉じると鑑定文を失う)
+  const reportSaveResult = (savedId: string | null) => {
+    if (savedId) {
+      setRecordId(savedId);
+      setSaveFailed(false);
       setSaveStatus('履歴に保存しました');
       setTimeout(() => setSaveStatus(null), 3000);
+    } else {
+      setSaveFailed(true);
+      setSaveStatus(null);
     }
   };
 
@@ -152,8 +182,9 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
           setAppraisalError(data.error || '鑑定文を生成できませんでした。時間をおいてから再度お試しください。');
         } else {
           setAppraisalText(data.text);
+          // 鑑定文は画面に出したうえで保存を試みる。保存に失敗しても本文は読める
           if (recordId) {
-            updateAppraisalText(recordId, data.text);
+            setSaveFailed(!updateAppraisalText(recordId, data.text));
           } else {
             const record = saveAppraisal({
               input,
@@ -162,9 +193,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
               schoolConfig,
               targetYear,
             });
-            setRecordId(record.id);
-            setSaveStatus('履歴に保存しました');
-            setTimeout(() => setSaveStatus(null), 3000);
+            reportSaveResult(record?.id ?? null);
           }
         }
       } else {
@@ -178,6 +207,31 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
       setGeneratingAppraisal(false);
     }
   };
+
+  const moon = positions.find(p => p.id === 'Moon');
+  const enNan = angles
+    ? getEnNanStars(getMingDuZhu(angles.ascendant, angles.mansionOffset).mansionName)
+    : null;
+
+  if (calcError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div role="alert" className="max-w-md bg-[#232326] border border-red-400/30 p-6 text-sm text-[#F5F2ED]/80 leading-relaxed">
+          <p className="text-red-400 font-bold mb-2">命盤を計算できませんでした</p>
+          <p>
+            生年月日・出生時刻・出生地（緯度・経度）・タイムゾーンに誤りがないかをご確認ください。
+            入力に問題がなければ、もう一度お試しください。
+          </p>
+          <button
+            onClick={() => setRetryCount(n => n + 1)}
+            className="mt-4 px-6 py-2 bg-[#232326] border border-[#D4AF37]/30 text-[#D4AF37] text-sm hover:bg-[#D4AF37]/10 transition-colors"
+          >
+            もう一度計算する
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !angles) {
     return (
@@ -207,7 +261,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
           {timeUnknown && (
             <div className="w-full mb-4 px-4 py-3 text-[11px] leading-relaxed bg-[#D4AF37]/10 border border-[#D4AF37]/30 text-[#F5F2ED]/80 print:bg-white print:text-black print:border-gray-400">
               出生時刻が不明のため、星曜の位置は正午で計算しています。
-              命宮・命度・命主・命度主・人事十二宮・大限・小限は出生時刻で決まるため表示せず、AI鑑定にも渡しません。
+              命宮・命度・命主・命度主・人事十二宮・昼夜・恩星と難星・大限・小限は出生時刻で決まるため表示せず、AI鑑定にも渡しません。
               {uncertainBodies.map(b => (
                 <div key={b.id} className="mt-1 text-[#E34234] print:text-black">
                   {describeDayUncertainBody(b)}。落宮・落宿が確定しないため、判定から外しています。
@@ -233,7 +287,8 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
             日=太陽 / 月=太陰 / 水=水星 / 金=金星 / 火=火星 / 木=木星 / 土=土星
             <br />
             羅=羅睺 / 計=計都 / 孛=月孛 / 氣=紫氣（逆=逆行）
-            {positions.some(p => p.id === 'Ziqi') && (
+            {/* 但し書きは旧試験式のときだけ。大統暦法の紫氣には出典がある */}
+            {schoolConfig.ziqiOption === 'cycle_28' && positions.some(p => p.id === 'Ziqi') && (
               <>
                 <br />
                 <span className="text-[#E34234]/80 print:text-gray-600">
@@ -290,6 +345,31 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
                 {getMingDuZhu(angles.ascendant, angles.mansionOffset).luminary}曜）
               </div>
             </div>
+            {/* 身主(月)の在る宮＝身宮と、月の宿の宿主＝身度主。命の側と並べて見る */}
+            {moon && (
+              <div className="bg-[#232326] p-3 border-l-2 border-[#D4AF37] print:bg-gray-100 print:text-black print:border-gray-800">
+                <div className="text-[9px] text-[#D4AF37]/70 uppercase tracking-tighter print:text-gray-600">身宮 / 身度主</div>
+                <div className="text-sm font-medium">
+                  {getHouseAtLongitude(moon.longitude).name}（{getHouseAtLongitude(moon.longitude).branch}） /{' '}
+                  {getMingDuZhu(moon.longitude, angles.mansionOffset).star}
+                </div>
+                <div className="text-[10px] text-[#F5F2ED]/60 print:text-gray-600 mt-0.5">
+                  身主＝月の在る宮 / {getMingDuZhu(moon.longitude, angles.mansionOffset).mansionName}宿（
+                  {getMingDuZhu(moon.longitude, angles.mansionOffset).luminary}曜）
+                </div>
+              </div>
+            )}
+            <div className="bg-[#232326] p-3 border-l-2 border-[#D4AF37] col-span-2 print:bg-gray-100 print:text-black print:border-gray-800">
+              <div className="text-[9px] text-[#D4AF37]/70 uppercase tracking-tighter print:text-gray-600">昼夜 / 恩星・難星</div>
+              <div className="text-sm font-medium">
+                {angles.isDaytime ? '昼生（忌：火星・羅睺）' : '夜生（忌：土星・計都）'}
+              </div>
+              {enNan && (
+                <div className="text-[10px] text-[#F5F2ED]/60 print:text-gray-600 mt-0.5">
+                  命度主（{enNan.lordWuxing}）に対し、恩星＝{enNan.en.join('・')} / 難星＝{enNan.nan.join('・')}
+                </div>
+              )}
+            </div>
           </div>
           )}
         </section>
@@ -318,6 +398,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
             </div>
             <div className="flex items-center gap-3">
               {saveStatus && <span className="text-xs text-[#D4AF37]">{saveStatus}</span>}
+              {saveFailed && <span role="alert" className="text-xs text-red-400">{SAVE_FAILED_MESSAGE}</span>}
               <button 
                 onClick={handleSaveToHistory}
                 disabled={!!recordId}
@@ -362,6 +443,7 @@ export function ChartContainer({ input, schoolConfig, restoredRecord, onOpenSett
                 ascendant={angles.ascendant}
                 targetYear={targetYear}
                 method={schoolConfig.fortuneMethod}
+                ageReckoning={schoolConfig.ageReckoning}
                 timeUnknown={timeUnknown}
                 onChangeYear={setTargetYear}
               />

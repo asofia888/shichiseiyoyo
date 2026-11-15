@@ -1,6 +1,7 @@
 import * as Astronomy from 'astronomy-engine';
 import { BirthInput, CelestialPosition, ChartAngles, EphemerisProvider, EphemerisProviderInfo } from './types';
 import { SchoolConfig, DEFAULT_SCHOOL_CONFIG } from '../qizhengsiyu/schoolConfig';
+import { SIDEREAL_MANSIONS } from '../qizhengsiyu/constants';
 
 function getMeanLunarNode(date: Date): number {
   const T = (date.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0)) / (1000 * 60 * 60 * 24 * 36525);
@@ -20,6 +21,22 @@ function getMeanLunarApogee(date: Date): number {
   return apogee;
 }
 
+const J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
+const centuriesSinceJ2000 = (date: Date) => (date.getTime() - J2000_MS) / (1000 * 60 * 60 * 24 * 36525);
+
+/** J2000 からの黄経の一般歳差 (度)。IAU 2006: p = 5028.796195″T + 1.1054348″T² (Tはユリウス世紀) */
+function precessionSinceJ2000(T: number): number {
+  return (5028.796195 * T + 1.1054348 * T * T) / 3600;
+}
+
+// Lahiri の J2000 元期値。二十八宿の境界表 (constants.ts) もこの値で作っているので、変えるなら表も作り直す
+const LAHIRI_AT_J2000 = 23.857;
+// Fagan/Bradley は 1950年1月1日 (JD 2433282.5) に 24°02′31.36″ = 24.04204°
+// (スイス・エフェメリスの定義値を載せた表による。saravali.github.io/astrology/aya_basics.html、2026-11-16 参照)。
+// 以前は「Lahiri＋0.9°」としていたが、実際の差は約0.883°で、約1′ずれていた。
+const FAGAN_BRADLEY_AT_1950 = 24.04204;
+const T_1950 = (Date.UTC(1950, 0, 1) - J2000_MS) / (1000 * 60 * 60 * 24 * 36525);
+
 function getAyanamsha(date: Date, config: SchoolConfig): number {
   if (config.zodiacSystem === 'tropical') {
     return 0;
@@ -27,13 +44,16 @@ function getAyanamsha(date: Date, config: SchoolConfig): number {
   if (config.zodiacSystem === 'sidereal_custom') {
     return config.ayanamshaValue ?? 24.0;
   }
-  const T = (date.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0)) / (1000 * 60 * 60 * 24 * 36525);
-  // 歳差レートは約50.29″/年 = 1.397°/ユリウス世紀 (Tは世紀単位)。Lahiri J2000元期値 ≈ 23.857°
-  const lahiri = 23.857 + T * 1.397;
+  const precession = precessionSinceJ2000(centuriesSinceJ2000(date));
   if (config.zodiacSystem === 'sidereal_fagan') {
-    return lahiri + 0.9;
+    return FAGAN_BRADLEY_AT_1950 - precessionSinceJ2000(T_1950) + precession;
   }
-  return lahiri; // sidereal_lahiri
+  return LAHIRI_AT_J2000 + precession; // sidereal_lahiri
+}
+
+/** 黄道傾斜角 (平均、度)。IAU 2006 の一次項まで: ε = 23.4392911° − 0.0130042°T */
+function meanObliquityDeg(T: number): number {
+  return 23.4392911 - 0.0130042 * T;
 }
 
 // 真交点(接触軌道の昇交点): 月の地心位置・速度ベクトルから瞬時軌道面を求める。
@@ -52,9 +72,8 @@ function getOsculatingNodeLongitude(time: Astronomy.AstroTime): number {
   const hy = r0.z * vx - r0.x * vz;
   // n = ẑ × h = (−hy, hx, 0) → 黄経 = atan2(n_y, n_x) = atan2(hx, −hy)
   const lonJ2000 = Math.atan2(hx, -hy) * (180 / Math.PI);
-  // J2000黄道座標の経度 → 当日春分点基準 (歳差 約1.397°/ユリウス世紀)
-  const T = (time.date.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0)) / (1000 * 60 * 60 * 24 * 36525);
-  let lon = (lonJ2000 + 1.397 * T) % 360;
+  // J2000黄道座標の経度 → 当日春分点基準 (黄経の一般歳差)
+  let lon = (lonJ2000 + precessionSinceJ2000(centuriesSinceJ2000(time.date))) % 360;
   if (lon < 0) lon += 360;
   return lon;
 }
@@ -86,19 +105,53 @@ function getInterpolatedApogeeLongitude(time: Astronomy.AstroTime): number {
   return (((lonPrev + frac * delta) % 360) + 360) % 360;
 }
 
+// 紫氣 (大統暦法)。『明史』巻36 暦志「步四餘」(中国語版ウィキソース、2026-11-15 参照):
+//   「紫氣週日一萬零二百二十七日一七九二。」「紫氣度率二十八日」
+//   「紫氣至後策八千一百九十四萬九六二三。」(分単位。1日=1万分なので 8194.9623日)
+//   「推四餘至後策　置中積，加各餘至後策，滿週日去之，即得。」
+//   「紫氣宿次日分立成入箕初度。」「氣孛順行，羅計逆行。」
+// 中積は洪武十七年甲子(1384)歳前の天正冬至からの日数 (巻35「置距洪武甲子積年減一，以歲周乘之爲中積」)。
+// つまり紫氣は、暦元の冬至の時点で箕宿初度に入ってから 8194.9623日が経っており、
+// 10227.1792日 (約28.001年) で周天を一巡する。
+//
+// 検算 (この読み方が正しいことの裏付け): 同じ節の月孛・羅睺の定数を同じ手順で解くと、
+// 暦元の冬至における実際の位置から逆算した起点が 月孛 246.0°・羅睺(降交点) 247.1° となり、
+// 距星実測の箕宿初度 247.4° (Lahiri恒星黄経) に 1.4°以内で一致する。暦元を至元辛巳(1281)と
+// 読むと 16°・261° と散らばり一致しない。羅睺が降交点である点も宋明式の割当と合う。
+//
+// 注意: ウィキソースの本文は校正前の版で、立成 (各宿に入る積日の表) は省略されている。
+// ここでは宿ごとの零分を使わず、周天を等速で進むものとして求める (差は1°未満)。
+const DAY_MS = 24 * 60 * 60 * 1000;
+// 洪武十七年甲子歳前の天正冬至 (1383年12月。現代の天文計算による太陽黄経270°の瞬間、先発グレゴリオ暦)
+const DATONG_EPOCH_MS = Date.UTC(1383, 11, 21, 18, 21);
+const ZIQI_PERIOD_DAYS = 10227.1792;
+const ZIQI_DAYS_AFTER_SOLSTICE = 8194.9623;
+
+/** 大統暦法による紫氣の位置。戻り値は Lahiri 恒星黄経 (二十八宿の境界表と同じ座標系) */
+export function getZiqiDatongSiderealLongitude(date: Date): number {
+  const jiStart = SIDEREAL_MANSIONS.find(m => m.id === 'ji')!.startLongitude; // 箕宿初度
+  const days = (date.getTime() - DATONG_EPOCH_MS) / DAY_MS + ZIQI_DAYS_AFTER_SOLSTICE;
+  const elapsed = ((days % ZIQI_PERIOD_DAYS) + ZIQI_PERIOD_DAYS) % ZIQI_PERIOD_DAYS;
+  return (jiStart + (elapsed / ZIQI_PERIOD_DAYS) * 360) % 360;
+}
+
+// 旧試験式。起点の出典がなく、この方式で保存した履歴の再現のためだけに残す
 function getZiqiLongitude(date: Date): number {
   const T = (date.getTime() - Date.UTC(2000, 0, 1, 12, 0, 0)) / (1000 * 60 * 60 * 24 * 36525);
-  // 紫氣は28年周天 = 12.857°/年 = 1285.71°/ユリウス世紀 (Tは世紀単位)。
-  // 注意: 元期値45.0°(J2000)は出典未確認のため、設計書§3に従いデフォルトの流派設定では無効。
+  // 紫氣は28年周天 = 12.857°/年 = 1285.71°/ユリウス世紀 (Tは世紀単位)。元期値45.0°(J2000)は出典なし。
   let ziqi = (45.0 + T * 1285.714) % 360;
   if (ziqi < 0) ziqi += 360;
   return ziqi;
 }
 
+// 日の出・日の入りとみなす太陽中心の高度 (大気差34′＋視半径16′)
+const SUNRISE_ALTITUDE_DEG = -0.833;
+
 export class AstronomyEngineProvider implements EphemerisProvider {
   getProviderInfo(): EphemerisProviderInfo {
     return {
       name: 'astronomy-engine',
+      // 手書きの値。package.json の実際の版とずれたら astronomy-engine-provider.test.ts が落ちる
       version: '2.1.19',
       description: 'Open-source astronomical calculation library with customizable school settings (Zodiac system, Node/Apogee models, Traditional Ming-Gong calculation).'
     };
@@ -204,9 +257,12 @@ export class AstronomyEngineProvider implements EphemerisProvider {
     });
 
     // Ziqi if enabled
-    if (config.ziqiOption === 'cycle_28') {
-      const ziqiRaw = getZiqiLongitude(jsDate);
-      const ziqiLon = (ziqiRaw - ayanamsha + 360) % 360;
+    if (config.ziqiOption !== 'none') {
+      // 大統暦法は恒星(宿)基準の位置を返すので、Lahiri値を足して当日春分点基準に直してから命盤座標へ写す
+      const ziqiRaw = config.ziqiOption === 'datong'
+        ? getZiqiDatongSiderealLongitude(jsDate) + getAyanamsha(jsDate, { ...config, zodiacSystem: 'sidereal_lahiri' })
+        : getZiqiLongitude(jsDate);
+      const ziqiLon = (((ziqiRaw - ayanamsha) % 360) + 360) % 360;
       results.push({
         id: 'Ziqi',
         name: '紫氣',
@@ -227,8 +283,10 @@ export class AstronomyEngineProvider implements EphemerisProvider {
     // Calculate LST and Ascendant / Midheaven
     const lst = Astronomy.SiderealTime(time) + (input.longitude / 15);
     const lst_rad = (lst * 15) * (Math.PI / 180);
-    const e = 23.4392911 * (Math.PI / 180);
-    const lat_rad = input.latitude * (Math.PI / 180);
+    // 黄道傾斜角は出生日の値を使う (J2000 の固定値だと1900年頃で約0.013°ずれる)
+    const e = meanObliquityDeg(centuriesSinceJ2000(jsDate)) * (Math.PI / 180);
+    // 極点ちょうど (±90°) では tan が発散し、地平線と黄道の交点が定まらない。直前の緯度で止める
+    const lat_rad = Math.max(-89.99, Math.min(89.99, input.latitude)) * (Math.PI / 180);
     
     let asc_rad = Math.atan2(Math.cos(lst_rad), -Math.sin(lst_rad) * Math.cos(e) - Math.tan(lat_rad) * Math.sin(e));
     let asc_deg = asc_rad * (180 / Math.PI);
@@ -237,6 +295,13 @@ export class AstronomyEngineProvider implements EphemerisProvider {
     let mc_rad = Math.atan2(Math.sin(lst_rad), Math.cos(lst_rad) * Math.cos(e));
     let mc_deg = mc_rad * (180 / Math.PI);
     if (mc_deg < 0) mc_deg += 360;
+
+    // 極圏 (緯度が 90°−黄道傾斜角 を超える土地) では、上の式が上昇点ではなく下降点を返す時間帯がある。
+    // 上昇点は必ず天頂(MC)から黄経の進む向きに 0〜180° の側にあるので、反対側に出たら 180° 回す
+    // (スイス・エフェメリスの houses 計算と同じ扱い)。
+    if ((((asc_deg - mc_deg) % 360) + 360) % 360 > 180) {
+      asc_deg = (asc_deg + 180) % 360;
+    }
     
     let ascendantLon = (asc_deg - ayanamsha + 360) % 360;
     let midheavenLon = (mc_deg - ayanamsha + 360) % 360;
@@ -277,10 +342,16 @@ export class AstronomyEngineProvider implements EphemerisProvider {
     const lahiriAyanamsha = getAyanamsha(jsDate, { ...config, zodiacSystem: 'sidereal_lahiri' });
     const mansionOffset = ((lahiriAyanamsha - ayanamsha) % 360 + 360) % 360;
 
+    // 昼夜: 出生の瞬間の太陽高度 (大気差なしの幾何高度) で決める
+    const sunObserver = new Astronomy.Observer(input.latitude, input.longitude, 0);
+    const sunTopo = Astronomy.Equator(Astronomy.Body.Sun, time, sunObserver, true, true);
+    const sunAltitude = Astronomy.Horizon(time, sunObserver, sunTopo.ra, sunTopo.dec).altitude;
+
     return {
       ascendant: ascendantLon,
       midheaven: midheavenLon,
-      mansionOffset
+      mansionOffset,
+      isDaytime: sunAltitude > SUNRISE_ALTITUDE_DEG,
     };
   }
 }

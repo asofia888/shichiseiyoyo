@@ -31,6 +31,10 @@ export interface ChartAngles {
   // サイデリアル(Lahiri)基準の二十八宿境界を命盤座標系へ写すためのずれ (度)。
   // 恒星黄道(Lahiri)の命盤では0。トロピカル命盤ではその日のLahiriアヤナムシャ値になる。
   mansionOffset: number;
+  // 昼生まれか (出生の瞬間に太陽が地平線上にあるか)。日の出・日の入りの慣例に合わせ、
+  // 太陽中心の幾何高度が −0.833° (大気差＋視半径) より上なら昼とする。
+  // 『張果星宗』の「分昼夜」(昼生は日に従い、夜生は月に従う) の判定に使う。
+  isDaytime: boolean;
 }
 
 export interface EphemerisProviderInfo {

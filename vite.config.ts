@@ -11,6 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        includeAssets: ['apple-touch-icon.png'],
         manifest: {
           name: '七政四余 命盤',
           short_name: '七政四余',
@@ -18,12 +19,12 @@ export default defineConfig(() => {
           theme_color: '#1A1A1B',
           background_color: '#121214',
           display: 'standalone',
+          // アイコンは public/ の実ファイル。以前は data URI の SVG 1枚で、PNG の 192px・512px を
+          // 求めるブラウザではインストールの条件を満たさなかった
           icons: [
-            {
-              src: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTEiIGZpbGw9IiNEMEFGMzciLz48L3N2Zz4=',
-              sizes: '192x192 512x512',
-              type: 'image/svg+xml'
-            }
+            { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+            { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           ]
         }
       })

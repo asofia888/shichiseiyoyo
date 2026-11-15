@@ -1,19 +1,21 @@
 import { BirthInput } from '../../domain/astronomy/types';
 import { computeFortune, formatAge, formatAgeRange } from '../../domain/qizhengsiyu/fortune';
-import { FortuneMethod } from '../../domain/qizhengsiyu/schoolConfig';
+import { FortuneMethod, AgeReckoning } from '../../domain/qizhengsiyu/schoolConfig';
 
 interface Props {
   input: BirthInput;
   ascendant: number;
   targetYear: number;
   method: FortuneMethod;
+  ageReckoning: AgeReckoning;
   /** 出生時刻が不明なら命宮が定まらないので、命宮を起点にする大限・小限・流年の宮は出さない */
   timeUnknown?: boolean;
   onChangeYear: (year: number) => void;
 }
 
-export function FortunePanel({ input, ascendant, targetYear, method, timeUnknown = false, onChangeYear }: Props) {
-  const f = computeFortune(input, ascendant, targetYear, method);
+export function FortunePanel({ input, ascendant, targetYear, method, ageReckoning, timeUnknown = false, onChangeYear }: Props) {
+  const f = computeFortune(input, ascendant, targetYear, method, ageReckoning);
+  const nominal = ageReckoning === 'nominal';
 
   const yearInput = (
     <div className="flex flex-wrap items-center gap-3 print:hidden">
@@ -35,7 +37,7 @@ export function FortunePanel({ input, ascendant, targetYear, method, timeUnknown
       />
       {f && (
         <span className="text-xs text-[#F5F2ED]/50">
-          {f.age}歳（誕生日基準）／生年干支 {f.ganzhi.stem}{f.ganzhi.branch}
+          {nominal ? `数え${f.age}歳` : `${f.age}歳（誕生日基準）`}／生年干支 {f.ganzhi.stem}{f.ganzhi.branch}
         </span>
       )}
     </div>
@@ -70,7 +72,8 @@ export function FortunePanel({ input, ascendant, targetYear, method, timeUnknown
   const { daXian } = f;
   // 果老式は境界に端数が出るので、鑑定年の途中で次の大限に移ることがある
   const nextDaXian = daXian ? f.daXianList.find(d => d.index === daXian.index + 1) : undefined;
-  const changesThisYear = !!daXian && !!nextDaXian && daXian.range[1] < f.age + 1;
+  // 数え年では年の途中で限が替わるとは数えない (整数の歳で宮を取る)
+  const changesThisYear = !nominal && !!daXian && !!nextDaXian && daXian.range[1] < f.age + 1;
 
   return (
     <div className="space-y-6">
@@ -143,6 +146,10 @@ export function FortunePanel({ input, ascendant, targetYear, method, timeUnknown
             )}
           </>
         )}
+        <br />
+        {nominal
+          ? '年齢は数え年です（生まれた年を一歳とし、年が改まるごとに一歳を加える）。大限の表の年齢も数え年で、各限は「始めの歳を超え、終わりの歳まで」を受け持ちます。'
+          : '年齢は満年齢です。'}
         <br />
         <span className="text-[#F5F2ED]/40">
           生年の干支は立春を境に判定しています（立春前の生まれは前年の干支）。

@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { getAppraisals, deleteAppraisal, AppraisalRecord } from '../../domain/storage/appraisalStore';
+import {
+  getAppraisals, deleteAppraisal, countUnreadableAppraisals, exportAppraisals, importAppraisals, AppraisalRecord,
+} from '../../domain/storage/appraisalStore';
 import { isBirthTimeUnknown } from '../../domain/qizhengsiyu/birth-time';
-import { Trash2, Eye, Calendar, User, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, Eye, Calendar, User, ChevronDown, ChevronUp, Download, Upload } from 'lucide-react';
 
 interface Props {
   onSelectAppraisal: (record: AppraisalRecord) => void;
@@ -13,12 +15,64 @@ export function HistoryView({ onSelectAppraisal }: Props) {
   const [appraisals, setAppraisals] = useState<AppraisalRecord[]>(getAppraisals());
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const [unreadable, setUnreadable] = useState(countUnreadableAppraisals());
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const reload = () => {
+    setAppraisals(getAppraisals());
+    setUnreadable(countUnreadableAppraisals());
+  };
+
   const handleDelete = (id: string) => {
     if (confirm('この鑑定履歴を削除しますか？')) {
-      deleteAppraisal(id);
-      setAppraisals(getAppraisals());
+      if (!deleteAppraisal(id)) {
+        setNotice({ text: '削除できませんでした。ブラウザの設定で保存が許可されているかをご確認ください。', error: true });
+        return;
+      }
+      reload();
       if (expandedId === id) setExpandedId(null);
     }
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([exportAppraisals()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `七政四余_鑑定履歴_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setNotice({ text: `${appraisals.length}件の履歴をファイルに書き出しました。`, error: false });
+  };
+
+  const handleImportFile = async (file: File | undefined) => {
+    if (!file) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setNotice({ text: 'ファイルを読み込めませんでした。', error: true });
+      return;
+    }
+    const result = importAppraisals(text);
+    if (!result.ok) {
+      const reasons = {
+        parse: 'ファイルの中身を読み取れませんでした。このアプリで書き出したファイルかをご確認ください。',
+        format: 'このアプリで書き出した履歴ファイルではありません。',
+        write: '取り込めませんでした。ブラウザの保存領域がいっぱいか、保存が許可されていません。',
+      };
+      setNotice({ text: reasons[result.reason], error: true });
+      return;
+    }
+    reload();
+    setNotice({
+      text:
+        `${result.added}件を取り込みました。` +
+        (result.duplicates ? `既にある${result.duplicates}件は飛ばしました。` : '') +
+        (result.invalid ? `形式の合わない${result.invalid}件は取り込んでいません。` : ''),
+      error: false,
+    });
   };
 
   return (
@@ -31,8 +85,47 @@ export function HistoryView({ onSelectAppraisal }: Props) {
       <div className="max-w-5xl mx-auto">
         <p className="text-[11px] text-[#F5F2ED]/40 mb-6 leading-relaxed">
           履歴はこのブラウザの中（localStorage）にのみ保存され、外部には送信されません。
-          ブラウザのデータを消去すると履歴も消えます。
+          ブラウザのデータを消去すると履歴も消えるため、残しておきたい場合はファイルに書き出してください。
         </p>
+
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <button
+            onClick={handleExport}
+            disabled={appraisals.length === 0}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#232326] border border-[#D4AF37]/20 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download size={14} />
+            <span>ファイルに書き出す</span>
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#232326] border border-[#D4AF37]/20 text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-colors"
+          >
+            <Upload size={14} />
+            <span>ファイルから取り込む</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              void handleImportFile(e.target.files?.[0]);
+              e.target.value = ''; // 同じファイルをもう一度選べるようにする
+            }}
+          />
+          {notice && (
+            <span role={notice.error ? 'alert' : 'status'} className={`text-xs ${notice.error ? 'text-red-400' : 'text-[#D4AF37]'}`}>
+              {notice.text}
+            </span>
+          )}
+        </div>
+
+        {unreadable > 0 && (
+          <p role="alert" className="text-xs text-red-400 bg-red-400/10 border border-red-400/30 px-4 py-3 mb-6 leading-relaxed">
+            形式が壊れていて表示できない履歴が{unreadable}件あります。データそのものは消さずに残しています。
+          </p>
+        )}
 
         {appraisals.length === 0 ? (
           <div className="bg-[#232326]/80 border border-[#D4AF37]/10 p-12 text-center text-[#F5F2ED]/50 flex flex-col items-center">

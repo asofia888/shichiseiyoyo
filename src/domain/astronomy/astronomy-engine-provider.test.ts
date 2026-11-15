@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import * as Astronomy from 'astronomy-engine';
-import { AstronomyEngineProvider } from './astronomy-engine-provider';
+import { AstronomyEngineProvider, getZiqiDatongSiderealLongitude } from './astronomy-engine-provider';
 import { BirthInput } from './types';
 import { SCHOOL_PRESETS, SchoolConfig, DEFAULT_SCHOOL_CONFIG } from '../qizhengsiyu/schoolConfig';
 
@@ -59,6 +61,78 @@ describe('アヤナムシャ (Lahiri)', () => {
   it('既知のLahiri値と一致する (1950≈23.15° / 2025≈24.21°)', async () => {
     expect(await effectiveAyanamsha('1950-01-01')).toBeCloseTo(23.15, 1);
     expect(await effectiveAyanamsha('2025-01-01')).toBeCloseTo(24.21, 1);
+  });
+});
+
+describe('アヤナムシャ (Fagan/Bradley)', () => {
+  async function sunLongitude(date: string, zodiacSystem: SchoolConfig['zodiacSystem']) {
+    const r = await provider.calculateBodies(input({ birthDate: date, birthTime: '00:00', timezoneOffset: 0 }), cfg({ zodiacSystem }));
+    return r.find(b => b.id === 'Sun')!.longitude;
+  }
+
+  it('1950年1月1日に 24°02′31.36″ (スイス・エフェメリスの定義値)', async () => {
+    const ayanamsha = circDiff(await sunLongitude('1950-01-01', 'tropical'), await sunLongitude('1950-01-01', 'sidereal_fagan'));
+    expect(ayanamsha).toBeCloseTo(24.04204, 4);
+  });
+
+  it('Lahiri との差は年代によらず約0.883° (以前の「＋0.9°」は約1′大きかった)', async () => {
+    for (const date of ['1900-06-01', '1988-08-15', '2026-01-01']) {
+      const diff = circDiff(await sunLongitude(date, 'sidereal_lahiri'), await sunLongitude(date, 'sidereal_fagan'));
+      expect(diff, date).toBeCloseTo(0.8834, 3);
+    }
+  });
+});
+
+describe('上昇点 (実測ASC)', () => {
+  // 黄道上の点 (黄緯0) が、その土地・その瞬間に東の地平線上にあるかを球面三角で確かめる
+  async function risingCheck(latitude: number, birthTime: string) {
+    const inp = input({ birthDate: '2000-06-21', birthTime, timezoneOffset: 0, latitude, longitude: 0 });
+    const angles = await provider.calculateAngles(inp, cfg({ zodiacSystem: 'tropical', mingGongMethod: 'ascendant' }));
+    const rad = Math.PI / 180;
+    const eps = 23.4392911 * rad;
+    const lam = angles.ascendant * rad;
+    const ra = Math.atan2(Math.sin(lam) * Math.cos(eps), Math.cos(lam));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+    const [hh, mm] = birthTime.split(':').map(Number);
+    const lst = Astronomy.SiderealTime(Astronomy.MakeTime(new Date(Date.UTC(2000, 5, 21, hh, mm)))) * 15 * rad;
+    const hourAngle = lst - ra;
+    const phi = latitude * rad;
+    const sinAlt = Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(hourAngle);
+    return { altitude: Math.asin(sinAlt) / rad, east: Math.sin(hourAngle) < 0, angles };
+  }
+
+  it('中緯度: 上昇点は地平線上にあり、東側にある', async () => {
+    for (const time of ['00:00', '06:00', '12:00', '18:00']) {
+      const r = await risingCheck(35, time);
+      expect(Math.abs(r.altitude), time).toBeLessThan(0.05);
+      expect(r.east, time).toBe(true);
+    }
+  });
+
+  it('極圏 (北緯75°・南緯75°): 一日のどの時刻でも、下降点ではなく上昇点を返す', async () => {
+    for (const latitude of [75, -75]) {
+      for (let h = 0; h < 24; h += 2) {
+        const time = `${String(h).padStart(2, '0')}:00`;
+        const r = await risingCheck(latitude, time);
+        expect(Math.abs(r.altitude), `${latitude}° ${time}`).toBeLessThan(0.05);
+        expect(r.east, `${latitude}° ${time}`).toBe(true);
+      }
+    }
+  });
+
+  it('極点 (±90°) でも数値を返す', async () => {
+    for (const latitude of [90, -90]) {
+      const { angles } = await risingCheck(latitude, '12:00');
+      expect(Number.isFinite(angles.ascendant), String(latitude)).toBe(true);
+      expect(Number.isFinite(angles.midheaven), String(latitude)).toBe(true);
+    }
+  });
+});
+
+describe('計算エンジンの表示', () => {
+  it('画面に出す版が、実際に入っている astronomy-engine の版と一致する', () => {
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'node_modules/astronomy-engine/package.json'), 'utf8'));
+    expect(provider.getProviderInfo().version).toBe(pkg.version);
   });
 });
 
@@ -188,25 +262,50 @@ describe('真位置 (接触軌道・イベント補間)', () => {
 });
 
 describe('紫氣', () => {
-  it('28年周天で移動し、伝統プリセットでは既定無効', async () => {
-    const g = (r: { id: string; longitude: number }[]) => r.find(b => b.id === 'Ziqi')!.longitude;
+  const g = (r: { id: string; longitude: number }[]) => r.find(b => b.id === 'Ziqi')!.longitude;
+
+  it('大統暦法: 暦元の冬至に、箕宿初度から 8194.9623日ぶん進んだ位置に在る (『明史』暦志「步四餘」)', () => {
+    // 洪武十七年甲子歳前の天正冬至。周日 10227.1792日で 360° を一巡する
+    const epoch = new Date(Date.UTC(1383, 11, 21, 18, 21));
+    const expected = (247.404 + (8194.9623 / 10227.1792) * 360) % 360; // 箕宿初度 = 247.404° (Lahiri)
+    expect(getZiqiDatongSiderealLongitude(epoch)).toBeCloseTo(expected, 6);
+    // 箕宿初度に入るのは、そこから (10227.1792 − 8194.9623) 日後
+    const atJi = new Date(epoch.getTime() + (10227.1792 - 8194.9623) * 86400000);
+    expect(circDiff(getZiqiDatongSiderealLongitude(atJi), 247.404)).toBeLessThan(1e-6);
+  });
+
+  it('大統暦法: 順行し、度率どおり28日で古度の一度 (360/365.2564°) 進み、周日で元の位置に戻る', () => {
+    const t0 = new Date(Date.UTC(2000, 0, 1));
+    const z0 = getZiqiDatongSiderealLongitude(t0);
+    const z28 = getZiqiDatongSiderealLongitude(new Date(t0.getTime() + 28 * 86400000));
+    expect((((z28 - z0) % 360) + 360) % 360).toBeCloseTo(360 / (10227.1792 / 28), 6);
+    const zCycle = getZiqiDatongSiderealLongitude(new Date(t0.getTime() + 10227.1792 * 86400000));
+    expect(circDiff(zCycle, z0)).toBeLessThan(1e-6);
+  });
+
+  it('どの黄道体系でも同じ宿に落ちる (紫氣は宿を基準に位置が決まる)', async () => {
+    const lahiri = await provider.calculateBodies(input({}), cfg({ zodiacSystem: 'sidereal_lahiri' }));
+    const tropical = await provider.calculateBodies(input({}), cfg({ zodiacSystem: 'tropical' }));
+    const aL = await provider.calculateAngles(input({}), cfg({ zodiacSystem: 'sidereal_lahiri' }));
+    const aT = await provider.calculateAngles(input({}), cfg({ zodiacSystem: 'tropical' }));
+    // 命盤黄経から宿境界のずれを引くと、どちらも同じ Lahiri 恒星黄経になる
+    expect(circDiff(g(lahiri) - aL.mansionOffset, g(tropical) - aT.mansionOffset)).toBeLessThan(1e-6);
+  });
+
+  it('全プリセットで大統暦法を既定とし、設定で外せる', async () => {
+    for (const [key, preset] of Object.entries(SCHOOL_PRESETS)) {
+      expect(preset.ziqiOption, key).toBe('datong');
+    }
+    const off = await provider.calculateBodies(input({}), cfg({ ziqiOption: 'none' }));
+    expect(off.some(b => b.id === 'Ziqi')).toBe(false);
+  });
+
+  it('旧試験式 (履歴の再現用) は従来どおり28年周天で動く', async () => {
     const z0 = await provider.calculateBodies(input({ birthDate: '2000-01-01' }), cfg({ ziqiOption: 'cycle_28' }));
     const z1 = await provider.calculateBodies(input({ birthDate: '2001-01-01' }), cfg({ ziqiOption: 'cycle_28' }));
     const z28 = await provider.calculateBodies(input({ birthDate: '2028-01-01' }), cfg({ ziqiOption: 'cycle_28' }));
     const yearMove = (((g(z1) - g(z0)) % 360) + 360) % 360;
     expect(yearMove).toBeCloseTo(12.857, 0);
     expect(circDiff(g(z28), g(z0))).toBeLessThan(1);
-    expect(DEFAULT_SCHOOL_CONFIG.ziqiOption).toBe('none');
-    const def = await provider.calculateBodies(input({}), DEFAULT_SCHOOL_CONFIG);
-    expect(def.some(b => b.id === 'Ziqi')).toBe(false);
-  });
-});
-
-describe('mansionOffset (宿境界の座標系補正)', () => {
-  it('恒星黄道(Lahiri)命盤では0、トロピカル命盤では当日のLahiri値になる', async () => {
-    const t = await provider.calculateAngles(input({}), SCHOOL_PRESETS.traditional);
-    expect(t.mansionOffset).toBeCloseTo(0, 9);
-    const m = await provider.calculateAngles(input({ birthDate: '2025-01-01' }), SCHOOL_PRESETS.modern);
-    expect(m.mansionOffset).toBeCloseTo(24.21, 1);
   });
 });

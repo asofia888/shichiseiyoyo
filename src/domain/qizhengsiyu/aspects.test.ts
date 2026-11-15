@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getAspect, buildAspectGrid, getAspectsTo, groupByKind } from './aspects';
-import { aspectByHouseDiff, isExactAspect, separationDeg, ASPECT_ORB_DEG, buildCanonicalRuleHit } from '../../../api/_lib/rule-texts';
+import { aspectByHouseDiff, aspectBetweenSigns, isLiuHe, HOUSE_ORDER, HOUSE_BRANCHES, isExactAspect, separationDeg, ASPECT_ORB_DEG, buildCanonicalRuleHit } from '../../../api/_lib/rule-texts';
 import { CelestialPosition } from '../astronomy/types';
 
 const star = (name: string, longitude: number): CelestialPosition =>
@@ -9,8 +9,6 @@ const star = (name: string, longitude: number): CelestialPosition =>
 describe('会合の宮差判定', () => {
   it('宮差ごとの種別が三方四正の定義どおり', () => {
     expect(aspectByHouseDiff(0)).toBe('同宮');
-    expect(aspectByHouseDiff(2)).toBe('六合');
-    expect(aspectByHouseDiff(10)).toBe('六合');
     expect(aspectByHouseDiff(3)).toBe('方照');
     expect(aspectByHouseDiff(9)).toBe('方照');
     expect(aspectByHouseDiff(4)).toBe('三合');
@@ -19,7 +17,7 @@ describe('会合の宮差判定', () => {
   });
 
   it('会合しない宮差は null', () => {
-    for (const d of [1, 5, 7, 11]) {
+    for (const d of [1, 2, 5, 7, 10, 11]) { // 2宮差(60°)は古法の会合ではない
       expect(aspectByHouseDiff(d), `宮差${d}`).toBeNull();
     }
   });
@@ -28,6 +26,45 @@ describe('会合の宮差判定', () => {
     expect(aspectByHouseDiff(-6)).toBe('対照');
     expect(aspectByHouseDiff(-4)).toBe('三合');
     expect(aspectByHouseDiff(16)).toBe('三合');
+  });
+});
+
+describe('六合 (地支の組)', () => {
+  const signOfBranch = (branch: string) =>
+    HOUSE_ORDER.findIndex(name => HOUSE_BRANCHES[name] === branch);
+
+  it('子丑・寅亥・卯戌・辰酉・巳申・午未の6組だけが六合になる', () => {
+    const pairs = ['子丑', '寅亥', '卯戌', '辰酉', '巳申', '午未'];
+    const found: string[] = [];
+    for (let a = 0; a < 12; a++) {
+      for (let b = a + 1; b < 12; b++) {
+        if (isLiuHe(a, b)) found.push(HOUSE_BRANCHES[HOUSE_ORDER[a]] + HOUSE_BRANCHES[HOUSE_ORDER[b]]);
+      }
+    }
+    const normalize = (p: string) => [...p].sort().join('');
+    expect(found.map(normalize).sort()).toEqual(pairs.map(normalize).sort());
+    for (const p of pairs) {
+      expect(isLiuHe(signOfBranch(p[0]), signOfBranch(p[1])), p).toBe(true);
+      expect(isLiuHe(signOfBranch(p[1]), signOfBranch(p[0])), `${p} 逆順`).toBe(true);
+    }
+  });
+
+  it('宮差の会合が無い組 (子丑・卯戌・辰酉・午未) は六合として返る', () => {
+    for (const p of ['子丑', '卯戌', '辰酉', '午未']) {
+      expect(aspectBetweenSigns(signOfBranch(p[0]), signOfBranch(p[1])), p)
+        .toEqual({ kind: '六合', alsoLiuHe: false });
+    }
+  });
+
+  it('寅亥・巳申は方照を優先し、六合を兼ねることを知らせる', () => {
+    for (const p of ['寅亥', '巳申']) {
+      expect(aspectBetweenSigns(signOfBranch(p[0]), signOfBranch(p[1])), p)
+        .toEqual({ kind: '方照', alsoLiuHe: true });
+    }
+  });
+
+  it('六合は度数の精密判定をしない', () => {
+    expect(isExactAspect('六合', 100, 160)).toBe(false);
   });
 });
 
@@ -76,7 +113,15 @@ describe('会合表', () => {
     expect(grouped['対照']).toBe('木星');
     expect(grouped['同宮']).toBe('紫氣');
     expect(grouped['方照']).toBeUndefined(); // 該当なし
-    // 土星(人馬)は命宮(天蝎)の隣なので会合しない
+    // 土星(人馬=寅)は命宮(天蝎=卯)の隣で、六合の組でもないので会合しない
+    expect(grouped['六合']).toBeUndefined();
+  });
+
+  it('方照と六合を兼ねる組は、まとめたとき両方に載る', () => {
+    // 人馬(寅)の命宮に対し、双魚(亥)の星
+    const grouped = groupByKind(getAspectsTo(250, [star('木星', 340)], '命宮'));
+    expect(grouped['方照']).toBe('木星');
+    expect(grouped['六合']).toBe('木星');
   });
 });
 

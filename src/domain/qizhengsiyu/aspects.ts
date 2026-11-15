@@ -1,10 +1,12 @@
 import { CelestialPosition } from '../astronomy/types';
-import { AspectKind, aspectByHouseDiff, isExactAspect, separationDeg } from '../../../api/_lib/rule-texts';
+import { AspectKind, aspectBetweenSigns, isExactAspect, separationDeg } from '../../../api/_lib/rule-texts';
 
 export interface Aspect {
   a: string; // 星曜名
   b: string;
   kind: AspectKind;
+  /** 方照でありながら地支の六合も兼ねる組 (寅亥・巳申) */
+  alsoLiuHe: boolean;
   /** 度数でもぴたりと合っているか (同宮なら「同度」、対照なら「正対」) */
   exact: boolean;
   /** 離角 (0〜180°) */
@@ -18,12 +20,14 @@ export function getAspect(
   a: { name: string; longitude: number },
   b: { name: string; longitude: number }
 ): Aspect | null {
-  const kind = aspectByHouseDiff(signOf(a.longitude) - signOf(b.longitude));
-  if (!kind) return null;
+  const found = aspectBetweenSigns(signOf(a.longitude), signOf(b.longitude));
+  if (!found) return null;
+  const { kind, alsoLiuHe } = found;
   return {
     a: a.name,
     b: b.name,
     kind,
+    alsoLiuHe,
     exact: isExactAspect(kind, a.longitude, b.longitude),
     separation: separationDeg(a.longitude, b.longitude),
   };
@@ -57,7 +61,10 @@ export function getAspectsTo(
 export function groupByKind(aspects: Aspect[]): Partial<Record<AspectKind, string>> {
   const out: Partial<Record<AspectKind, string>> = {};
   for (const kind of ['同宮', '三合', '対照', '方照', '六合'] as AspectKind[]) {
-    const names = aspects.filter(x => x.kind === kind).map(x => x.b);
+    // 寅亥・巳申の組は方照と六合の両方に載せる
+    const names = aspects
+      .filter(x => x.kind === kind || (kind === '六合' && x.alsoLiuHe))
+      .map(x => x.b);
     if (names.length) out[kind] = names.join('・');
   }
   return out;

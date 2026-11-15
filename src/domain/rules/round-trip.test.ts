@@ -23,10 +23,12 @@ async function roundTrip(
   targetYear?: number,
   fortuneMethod: FortuneMethod = SCHOOL_PRESETS.traditional.fortuneMethod
 ) {
-  const config = { ...SCHOOL_PRESETS.traditional, ziqiOption: (ziqi ? 'cycle_28' : 'none') as 'cycle_28' | 'none' };
+  const config = { ...SCHOOL_PRESETS.traditional, ziqiOption: (ziqi ? 'datong' : 'none') as 'datong' | 'none' };
   const positions = await provider.calculateBodies(input, config);
   const angles = await provider.calculateAngles(input, config);
-  const hits = engine.evaluateAll(positions, angles, { input, targetYear, fortuneMethod });
+  const hits = engine.evaluateAll(positions, angles, {
+    input, targetYear, fortuneMethod, ageReckoning: config.ageReckoning, ziqiOption: config.ziqiOption,
+  });
   const body = {
     hits: hits.map(h => ({ ruleId: h.ruleId, ...(h.params ? { params: h.params } : {}) })),
   };

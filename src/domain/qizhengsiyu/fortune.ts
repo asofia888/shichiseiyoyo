@@ -1,7 +1,7 @@
 import * as Astronomy from 'astronomy-engine';
 import { BirthInput } from '../astronomy/types';
 import { MVP_HOUSES, PERSON_HOUSES } from './constants';
-import { FortuneMethod } from './schoolConfig';
+import { FortuneMethod, AgeReckoning } from './schoolConfig';
 
 // 大限・小限・流年。
 //
@@ -13,6 +13,10 @@ import { FortuneMethod } from './schoolConfig';
 // 小限: 一年一宮。guolao では出生の年(一歳)を命宮とし、財帛宮→兄弟宮…と進む (男女共通)。
 //       yinyang_decade では当初の実装どおり大限と同じ向きに進む。
 // 流年: その年の太歳(年支)が入る十二次を流年宮とする (方式によらない)。
+// 年齢の数え方も流派設定 (SchoolConfig.ageReckoning) で切り替える:
+// - nominal (数え年): 生まれた干支年を一歳とする。大限は「童限13.4年なら数え13歳までが命宮、
+//   14歳から次の宮」のように、範囲 (始め, 終わり] に入る宮を取る。
+// - full (満年齢): 当初の数え方。範囲 [始め, 終わり) に入る宮を取る。
 // 「順行」は人事宮の順 (命宮→財帛宮→兄弟宮…) で、黄経が +30° 進む向き。
 
 export const HEAVENLY_STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
@@ -183,7 +187,8 @@ function decadeDaXianAt(ascendant: number, index: number, direction: FortuneDire
 export interface FortuneResult {
   method: FortuneMethod;
   targetYear: number;
-  age: number;                 // 鑑定年の誕生日を迎えた時点の満年齢
+  ageReckoning: AgeReckoning;
+  age: number;                 // 数え年なら鑑定年の数え年、満年齢なら鑑定年の誕生日を迎えた時点の年齢
   ganzhi: YearGanzhi;          // 生年の干支
   direction: FortuneDirection; // 大限の進む向き (果老式は常に逆行)
   directionAssumed: boolean;   // 性別未指定で順行と仮定したか (一宮十年式のみ)
@@ -200,7 +205,9 @@ export function computeFortune(
   input: BirthInput,
   ascendant: number,
   targetYear: number,
-  method: FortuneMethod
+  method: FortuneMethod,
+  // 既定は満年齢。年齢の数え方を選べるようにする前の呼び出しと履歴はこの数え方で計算している
+  ageReckoning: AgeReckoning = 'full'
 ): FortuneResult | null {
   const birthUtc = getBirthUtc(input);
   const birthGanzhi = getBirthYearGanzhi(input);
@@ -208,7 +215,12 @@ export function computeFortune(
   if (!Number.isFinite(targetYear) || targetYear < 1800 || targetYear > 2200) return null;
 
   const birthYear = Number(input.birthDate.slice(0, 4));
-  const age = Math.max(0, targetYear - birthYear); // 鑑定年の誕生日基準
+  const nominal = ageReckoning === 'nominal';
+  const age = nominal
+    ? Math.max(1, targetYear - birthGanzhi.year + 1) // 生まれた干支年を一歳とする
+    : Math.max(0, targetYear - birthYear);            // 鑑定年の誕生日基準
+  // 小限の起点からの年数 (出生の年=0)
+  const yearsFromBirth = nominal ? age - 1 : age;
 
   let direction: FortuneDirection;
   let directionAssumed = false;
@@ -222,16 +234,18 @@ export function computeFortune(
     if (tongXianYears === null) return null;
     direction = '逆行';
     daXianList = listGuolaoDaXian(ascendant, tongXianYears);
-    daXian = daXianList.find(d => age >= d.range[0] && age < d.range[1]) ?? null;
+    daXian = daXianList.find(d => (nominal
+      ? age > d.range[0] && age <= d.range[1]
+      : age >= d.range[0] && age < d.range[1])) ?? null;
     // 小限は一歳(出生の年)を命宮とし、二歳で財帛宮、三歳で兄弟宮へ進む
-    xiaoXian = periodAt(ascendant, age % 12, '順行');
+    xiaoXian = periodAt(ascendant, yearsFromBirth % 12, '順行');
   } else {
     const found = getFortuneDirection(input, birthGanzhi);
     direction = found.direction;
     directionAssumed = found.assumed;
     daXianList = Array.from({ length: 12 }, (_, i) => decadeDaXianAt(ascendant, i + 1, direction));
-    daXian = decadeDaXianAt(ascendant, Math.floor(age / 10) + 1, direction);
-    xiaoXian = periodAt(ascendant, age % 12, direction);
+    daXian = decadeDaXianAt(ascendant, nominal ? Math.ceil(age / 10) : Math.floor(age / 10) + 1, direction);
+    xiaoXian = periodAt(ascendant, yearsFromBirth % 12, direction);
   }
 
   const liuNianGanzhi = ganzhiOfYear(targetYear);
@@ -243,6 +257,7 @@ export function computeFortune(
   return {
     method,
     targetYear,
+    ageReckoning,
     age,
     ganzhi: birthGanzhi,
     direction,

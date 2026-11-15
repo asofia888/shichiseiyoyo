@@ -17,7 +17,9 @@ const GOLDEN_INPUT: BirthInput = {
 async function hitsFor(config = SCHOOL_PRESETS.traditional) {
   const positions = await provider.calculateBodies(GOLDEN_INPUT, config);
   const angles = await provider.calculateAngles(GOLDEN_INPUT, config);
-  return engine.evaluateAll(positions, angles);
+  return engine.evaluateAll(positions, angles, {
+    input: GOLDEN_INPUT, fortuneMethod: config.fortuneMethod, ziqiOption: config.ziqiOption,
+  });
 }
 
 describe('四余の鑑定ルール', () => {
@@ -29,27 +31,39 @@ describe('四余の鑑定ルール', () => {
     expect(ids).toContain('r_yuebei_placement');
   });
 
-  it('紫氣は起点が出典未確認のため、どのプリセットでも既定では算入しない', () => {
-    for (const [key, preset] of Object.entries(SCHOOL_PRESETS)) {
-      expect(preset.ziqiOption, key).toBe('none');
-    }
-  });
-
-  it('紫氣を算入したときは、位置が試験的な計算であることを判定文に明記する', async () => {
+  it('旧試験式の紫氣には、位置が試験的な計算であることを判定文に明記する', async () => {
     const hits = await hitsFor({ ...SCHOOL_PRESETS.traditional, ziqiOption: 'cycle_28' });
     const ziqi = hits.find(h => h.ruleId === 'r_ziqi_placement')!;
     expect(ziqi.interpretation).toContain('試験的な計算');
+    expect(ziqi.params?.calc).toBeUndefined();
     // 他の四余には付けない
     const rahu = hits.find(h => h.ruleId === 'r_rahu_placement')!;
     expect(rahu.interpretation).not.toContain('試験的');
   });
 
+  it('大統暦法の紫氣には但し書きを付けず、根拠に算法を示す', async () => {
+    const hits = await hitsFor(); // 伝統古法の既定は大統暦法
+    const ziqi = hits.find(h => h.ruleId === 'r_ziqi_placement')!;
+    expect(ziqi.params?.calc).toBe('datong');
+    expect(ziqi.interpretation).not.toContain('試験的');
+    expect(ziqi.evidence).toContain('紫氣の位置は大統暦法による');
+  });
+
+  it('算法の指定は紫氣にだけ許し、未知の値は拒否する', () => {
+    const base = { houseName: '獅子', personHouseName: '官禄宮', mansionName: '張' };
+    expect(buildCanonicalRuleHit('r_ziqi_placement', { ...base, calc: 'datong' })).not.toBeNull();
+    expect(buildCanonicalRuleHit('r_ziqi_placement', { ...base, calc: 'other' })).toBeNull();
+    expect(buildCanonicalRuleHit('r_rahu_placement', { ...base, calc: 'datong' })).toBeNull();
+  });
+
   it('紫氣は流派設定で有効なときだけ判定される', async () => {
-    const off = await hitsFor(SCHOOL_PRESETS.traditional); // ziqiOption: 'none'
+    const off = await hitsFor({ ...SCHOOL_PRESETS.traditional, ziqiOption: 'none' });
     expect(off.map(h => h.ruleId)).not.toContain('r_ziqi_placement');
 
-    const on = await hitsFor({ ...SCHOOL_PRESETS.traditional, ziqiOption: 'cycle_28' });
-    expect(on.map(h => h.ruleId)).toContain('r_ziqi_placement');
+    for (const ziqiOption of ['datong', 'cycle_28'] as const) {
+      const on = await hitsFor({ ...SCHOOL_PRESETS.traditional, ziqiOption });
+      expect(on.map(h => h.ruleId), ziqiOption).toContain('r_ziqi_placement');
+    }
   });
 
   it('根拠に落宮・人事宮・落宿・星宿生剋がそろい、命盤の実値と一致する', async () => {
@@ -57,9 +71,11 @@ describe('四余の鑑定ルール', () => {
     const rahu = hits.find(h => h.ruleId === 'r_rahu_placement')!;
     // 基準命盤: 羅睺 141.44° = 獅子(午)宮 / 命宮は天蝎なので獅子は官禄宮 / 張宿(月=水)
     // 羅睺は火なので、水剋火で「受剋」
+    // 官禄宮は強宮 (張果星宗「强宫者，谓命宫、官禄、田宅、妻妾、男女、福德、财帛」)
     expect(rahu.evidence).toEqual([
-      '羅睺在午(獅子)宮', '官禄宮', '張宿', '張宿(月=水)と羅睺(火)は受剋',
+      '羅睺在午(獅子)宮', '官禄宮', '強宮', '張宿', '張宿(月=水)と羅睺(火)は受剋',
     ]);
+    expect(rahu.interpretation).toContain('官禄宮は強宮で、この星は力を得ます。');
     expect(rahu.title).toBe('羅睺が官禄宮に在中（張宿・受剋）');
     expect(rahu.interpretation).toContain('獅子宮（午）の官禄宮');
   });
@@ -79,10 +95,10 @@ describe('四余の鑑定ルール', () => {
     }
   });
 
-  it('出典が「通説（典拠未確定）」と明示されている', async () => {
+  it('四余の意味は典拠未確定の通説であることを、出典欄に明示している', async () => {
     const hits = await hitsFor();
     for (const id of ['r_rahu_placement', 'r_ketu_placement', 'r_yuebei_placement']) {
-      expect(hits.find(h => h.ruleId === id)!.sourceId).toBe('通説（典拠未確定）');
+      expect(hits.find(h => h.ruleId === id)!.sourceId).toContain('通説（四余の意味・五行生剋・典拠未確定）');
     }
   });
 

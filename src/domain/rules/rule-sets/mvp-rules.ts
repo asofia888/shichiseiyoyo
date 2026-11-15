@@ -9,7 +9,7 @@ import {
   MVP_HOUSES,
 } from '../../qizhengsiyu/constants';
 import { getAspectsTo, groupByKind } from '../../qizhengsiyu/aspects';
-import { computeFortune, formatAgeRange } from '../../qizhengsiyu/fortune';
+import { computeFortune, formatAgeRange, getBirthYearGanzhi } from '../../qizhengsiyu/fortune';
 import { buildCanonicalRuleHit, SEVEN_GOVERNORS } from '../../../../api/_lib/rule-texts';
 
 // 下の七政の対表が rule-texts.ts 側の正規名と食い違っていないことを起動時に確かめる
@@ -81,8 +81,12 @@ function siyuPlacementRule(bodyId: string, ruleId: string, title: string): QzsyR
     evaluate: (positions, angles, ctx) => {
       const found = placementParams(positions, bodyId, angles, ctx);
       if (!found) return null;
-      const hit = buildCanonicalRuleHit(ruleId, found.params);
-      return hit ? { ...hit, params: found.params } : null;
+      // 紫氣は算法を添える (旧試験式の位置には、サーバー側で但し書きが付く)
+      const params = bodyId === 'Ziqi' && ctx?.ziqiOption === 'datong'
+        ? { ...found.params, calc: 'datong' }
+        : found.params;
+      const hit = buildCanonicalRuleHit(ruleId, params);
+      return hit ? { ...hit, params } : null;
     },
   };
 }
@@ -130,6 +134,53 @@ export const MVP_RULES: QzsyRule[] = [
       return hit ? { ...hit, params } : null;
     },
   },
+  // 昼夜の喜忌 (張果星宗「分昼夜」)。昼夜は出生時刻で決まる。
+  {
+    id: 'r_day_night',
+    requiresBirthTime: true,
+    title: '昼夜の喜忌',
+    category: 'nature',
+    evaluate: (positions, angles) => {
+      // 昼生は火星・羅睺、夜生は土星・計都を忌む。その星の在る人事宮を添える
+      const avoidIds = angles.isDaytime ? ['Mars', 'Rahu'] : ['Saturn', 'Ketu'];
+      const [avoid1House, avoid2House] = avoidIds.map(id => {
+        const body = positions.find(p => p.id === id);
+        return body ? getPersonHouseAt(body.longitude, angles.ascendant).name : undefined;
+      });
+      const params = {
+        sect: angles.isDaytime ? '昼生' : '夜生',
+        ...(avoid1House ? { avoid1House } : {}),
+        ...(avoid2House ? { avoid2House } : {}),
+      };
+      const hit = buildCanonicalRuleHit('r_day_night', params);
+      return hit ? { ...hit, params } : null;
+    },
+  },
+  // 恩星・難星 (張果星宗「生殺星論」)。命度主の五行を生じる星・剋する星。
+  {
+    id: 'r_en_nan',
+    requiresBirthTime: true,
+    title: '恩星と難星',
+    category: 'nature',
+    evaluate: (_positions, angles) => {
+      const params = { mansionName: getMingDuZhu(angles.ascendant, angles.mansionOffset).mansionName };
+      const hit = buildCanonicalRuleHit('r_en_nan', params);
+      return hit ? { ...hit, params } : null;
+    },
+  },
+  // 身主 (月)・身宮・身度主。月の位置で決まるので、時刻不明でも月の落宮・落宿が
+  // その日のうちに変わらなければ判定できる (人事宮だけ省く)。
+  {
+    id: 'r_shen',
+    title: '身主と身宮',
+    category: 'nature',
+    evaluate: (positions, angles, ctx) => {
+      const found = placementParams(positions, 'Moon', angles, ctx);
+      if (!found) return null;
+      const hit = buildCanonicalRuleHit('r_shen', found.params);
+      return hit ? { ...hit, params: found.params } : null;
+    },
+  },
   {
     id: 'r_general_asc',
     requiresBirthTime: true,
@@ -142,18 +193,49 @@ export const MVP_RULES: QzsyRule[] = [
       return hit ? { ...hit, params } : null;
     },
   },
+  // 木星が七強宮に在る (張果星宗「歳星総論」)
   {
-    id: 'r_jupiter_angle',
+    id: 'r_jupiter_strong',
     requiresBirthTime: true,
-    title: '木星の好配置',
+    title: '木星が強宮に在る',
     category: 'career',
     evaluate: (positions, angles) => {
       const jup = positions.find(p => p.id === 'Jupiter');
       if (!jup) return null;
-      // 命宮から見て四正(1・4・7・10宮)に当たるか
-      const diffHouses = getPersonHouseAt(jup.longitude, angles.ascendant).index;
-      if (diffHouses % 3 !== 0) return null;
-      return buildCanonicalRuleHit('r_jupiter_angle');
+      const params = { personHouseName: getPersonHouseAt(jup.longitude, angles.ascendant).name };
+      // 弱宮ならサーバー側の検証と同じ表で弾かれ、null になる
+      const hit = buildCanonicalRuleHit('r_jupiter_strong', params);
+      return hit ? { ...hit, params } : null;
+    },
+  },
+  // 化曜 (生年干による十化)。生年の干支は立春を境に決まり、出生時刻にはほぼよらない
+  {
+    id: 'r_hua_yao',
+    title: '化曜',
+    category: 'nature',
+    evaluate: (_positions, _angles, ctx) => {
+      const ganzhi = ctx ? getBirthYearGanzhi(ctx.input) : null;
+      if (!ganzhi) return null;
+      const params = { stem: ganzhi.stem };
+      const hit = buildCanonicalRuleHit('r_hua_yao', params);
+      return hit ? { ...hit, params } : null;
+    },
+  },
+  // 神殺 (生年の干支から宮を取るもの)。出生時刻が不明なら人事宮を添えない
+  {
+    id: 'r_shen_sha',
+    title: '神殺',
+    category: 'theme',
+    evaluate: (_positions, angles, ctx) => {
+      const ganzhi = ctx ? getBirthYearGanzhi(ctx.input) : null;
+      if (!ctx || !ganzhi) return null;
+      const params = {
+        stem: ganzhi.stem,
+        branch: ganzhi.branch,
+        ...(isBirthTimeUnknown(ctx.input) ? {} : { mingHouseName: getHouse(angles.ascendant).name }),
+      };
+      const hit = buildCanonicalRuleHit('r_shen_sha', params);
+      return hit ? { ...hit, params } : null;
     },
   },
   // 大限・小限・流年。鑑定年が渡されたときだけ判定する。
@@ -164,11 +246,12 @@ export const MVP_RULES: QzsyRule[] = [
     category: 'fortune',
     evaluate: (_positions, angles, ctx) => {
       if (!ctx?.targetYear) return null;
-      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod);
+      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod, ctx.ageReckoning);
       // 果老式で年分歌の範囲を超える年齢では大限を立てない
       if (!f || !f.daXian) return null;
       const params = {
         method: f.method,
+        ageBasis: f.ageReckoning === 'nominal' ? '数え年' : '満年齢',
         houseName: f.daXian.houseName,
         personHouseName: f.daXian.personHouseName,
         direction: f.direction,
@@ -187,13 +270,16 @@ export const MVP_RULES: QzsyRule[] = [
     category: 'fortune',
     evaluate: (_positions, angles, ctx) => {
       if (!ctx?.targetYear) return null;
-      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod);
+      const f = computeFortune(ctx.input, angles.ascendant, ctx.targetYear, ctx.fortuneMethod, ctx.ageReckoning);
       if (!f) return null;
       const params = {
         houseName: f.liuNian.houseName,
         personHouseName: f.liuNian.personHouseName,
         yearGanzhi: `${f.liuNianGanzhi.stem}${f.liuNianGanzhi.branch}`,
         year: String(f.targetYear),
+        // 太歳が生年の神殺の宮に重なるかをサーバー側で見るために渡す
+        birthStem: f.ganzhi.stem,
+        birthBranch: f.ganzhi.branch,
       };
       const hit = buildCanonicalRuleHit('r_liu_nian', params);
       return hit ? { ...hit, params } : null;

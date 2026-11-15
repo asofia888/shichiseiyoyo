@@ -21,7 +21,7 @@ const GOLDEN_INPUT: BirthInput = {
   latitude: 35.6581, longitude: 139.7414, timezoneOffset: 9,
 };
 
-// 1988-08-15 14:30 JST 東京 (伝統古法プリセット: Lahiri恒星黄道・宋明式羅計・真太陽時・平均交点/遠地点)
+// 1988-08-15 14:30 JST 東京 (伝統古法プリセット: Lahiri恒星黄道・宋明式羅計・真太陽時・平均交点/遠地点・大統暦法の紫氣)
 const GOLDEN = {
   ascendant: 238.9074,
   midheaven: 162.9307,
@@ -38,6 +38,10 @@ const GOLDEN = {
     Rahu: { lon: 141.4367, house: '獅子', mansion: '張', retro: true },
     Ketu: { lon: 321.4367, house: '宝瓶', mansion: '危', retro: true },
     Yuebei: { lon: 136.632, house: '獅子', mansion: '張', retro: false },
+    // 2026-11-15 追加。伝統古法プリセットで紫氣を大統暦法により既定で算入するようにしたため
+    // (根拠は astronomy-engine-provider.ts の getZiqiDatongSiderealLongitude)。
+    // 値は別実装 (Python の日数計算) でも 29.6304° と一致することを確かめた。
+    Ziqi: { lon: 29.6304, house: '白羊', mansion: '胃', retro: false },
   } as Record<string, { lon: number; house: string; mansion: string; retro: boolean }>,
 };
 
@@ -50,7 +54,7 @@ describe('回帰基準: 基準命盤 (1988-08-15 14:30 JST 東京・伝統古法
     const bodies = await provider.calculateBodies(GOLDEN_INPUT, config);
     const angles = await provider.calculateAngles(GOLDEN_INPUT, config);
 
-    expect(bodies).toHaveLength(10); // 七政7 + 羅計2 + 月孛1 (紫氣は既定無効)
+    expect(bodies).toHaveLength(11); // 七政7 + 羅計2 + 月孛1 + 紫氣1
     for (const body of bodies) {
       const g = GOLDEN.bodies[body.id];
       expect(g, `基準値に ${body.id} がない`).toBeDefined();

@@ -25,12 +25,12 @@ export function AspectGrid({ positions, ascendant, timeUnknown = false }: Props)
   return (
     <div className="space-y-4">
       <div className="text-xs text-[#F5F2ED]/60 print:text-gray-600 leading-relaxed">
-        宮の差で会合を判定しています（同宮=0宮差 / 六合=2宮 / 方照=3宮 / 三合=4宮 / 対照=6宮）。
+        宮の差で会合を判定しています（同宮=0宮差 / 方照=3宮 / 三合=4宮 / 対照=6宮）。
+        六合だけは地支の組（子丑・寅亥・卯戌・辰酉・巳申・午未）で決まります。
         丸で囲んだものは度数でもぴたりと合う会合（許容差5°以内）で、より強く働きます。
         <br />
         <span className="text-[#F5F2ED]/40">
-          ※ここでの「六合」は2宮差＝60°の会合を指します。四柱・斗数でいう地支の六合（子丑・寅亥…）
-          とは別のものです（盤上ではそちらは1宮差にあたります）。
+          ※寅亥・巳申の組は方照と六合を兼ねるため「方合」と表示します。
         </span>
       </div>
 
@@ -61,13 +61,14 @@ export function AspectGrid({ positions, ascendant, timeUnknown = false }: Props)
                     return <td key={c.id} className="p-1.5 border border-[#D4AF37]/10 text-center text-[#F5F2ED]/20 print:text-gray-300">·</td>;
                   }
                   const style = ASPECT_STYLE[aspect.kind];
+                  const mark = style.mark + (aspect.alsoLiuHe ? '合' : '');
                   return (
                     <td
                       key={c.id}
                       className={`p-1.5 border border-[#D4AF37]/10 text-center whitespace-nowrap print:text-black ${style.className}`}
-                      title={`${r.name}と${c.name}: ${aspect.kind}（離角 ${aspect.separation.toFixed(2)}°）${aspect.exact ? ' ぴたりと合う' : ''}`}
+                      title={`${r.name}と${c.name}: ${aspect.kind}${aspect.alsoLiuHe ? '・六合' : ''}（離角 ${aspect.separation.toFixed(2)}°）${aspect.exact ? ' ぴたりと合う' : ''}`}
                     >
-                      {aspect.exact ? `(${style.mark})` : style.mark}
+                      {aspect.exact ? `(${mark})` : mark}
                     </td>
                   );
                 })}
